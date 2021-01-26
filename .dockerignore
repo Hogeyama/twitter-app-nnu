@@ -1,0 +1,13 @@
+# docker
+Dockerfile
+.dockerignore
+# git
+.git/
+# stack build directory
+.stack-work/
+# elm
+elm-stuff/
+public/elm.js
+# others
+.key
+TODO
