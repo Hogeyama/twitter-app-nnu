@@ -1,0 +1,38 @@
+version: 0.2
+
+env:
+  shell: bash
+  variables:
+    TEST: 1
+  secrets-manager:
+    OAUTH_CONSUMER_KEY: "nijisanji-name-update:OAUTH_CONSUMER_KEY"
+    OAUTH_CONSUMER_SECRET: "nijisanji-name-update:OAUTH_CONSUMER_SECRET"
+    ALL_OAUTH_ACCESS_TOKEN: "nijisanji-name-update:ALL_OAUTH_ACCESS_TOKEN"
+    ALL_OAUTH_ACCESS_SECRET: "nijisanji-name-update:ALL_OAUTH_ACCESS_SECRET"
+
+phases:
+  install:
+    runtime-versions: TODO
+    commands: []
+    finally: []
+  pre_build:
+    commands:
+      - find .
+      - echo $OAUTH_CONSUMER_KEY
+    finally: []
+  build:
+    commands: []
+    finally: []
+  post_build:
+    commands: []
+    finally: []
+
+# build結果をuploadできる
+# artifacts
+
+cache:
+  paths:
+    - /root/.cabal/store
+    - /root/nijisanji-name-update/dist-newstyle
+
+
