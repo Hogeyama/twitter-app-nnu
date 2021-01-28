@@ -4,31 +4,14 @@
 ################################################################################
 
 FROM haskell:8.10.2-buster as dependency
-
 ENV LANG C.UTF-8
-
-# apt-get
-#########
-
 RUN apt-get update && apt-get install -y \
     postgresql-11 \
     postgresql-server-dev-11
-
-# Haskell
-#########
-
-# Create bin dir
 RUN mkdir -p /opt/name-update-2434/bin
-ENV PATH "$PATH:/opt/stack/bin"
-
-# Create src dir
 RUN mkdir -p /opt/name-update-2434/src
 WORKDIR /opt/name-update-2434/src
-
-# Install dependencies
 COPY ./name-update.cabal /opt/name-update-2434/src/name-update.cabal
-# COPY ./cabal.project.freeze /opt/name-update-2434/src/cabal.project.freeze
-# RUN cabal v2-update
 RUN cabal update && cabal v2-build --only-dependencies
 
 ################################################################################
