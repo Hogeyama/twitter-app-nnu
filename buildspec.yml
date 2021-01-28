@@ -15,23 +15,13 @@ phases:
     commands: []
     finally: []
   pre_build:
-    commands:
-      - find .
-      - find /opt/
+    commands: []
     finally: []
   build:
-    commands: []
+    commands:
+      - cabal v2-build
+      - cabal v2-install --installdir=/opt/name-update-2434/bin --install-method=copy
     finally: []
   post_build:
     commands: []
     finally: []
-
-# build結果をuploadできる
-# artifacts
-
-cache:
-  paths:
-    - /root/.cabal/store
-    - /root/nijisanji-name-update/dist-newstyle
-
-

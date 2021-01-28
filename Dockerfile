@@ -1,18 +1,21 @@
+
+################################################################################
+# Dependency
+################################################################################
+
 FROM haskell:8.10.2-buster as dependency
 
 ENV LANG C.UTF-8
 
-################################################################################
 # apt-get
-################################################################################
+#########
 
 RUN apt-get update && apt-get install -y \
     postgresql-11 \
     postgresql-server-dev-11
 
-################################################################################
 # Haskell
-################################################################################
+#########
 
 # Create bin dir
 RUN mkdir -p /opt/name-update-2434/bin
@@ -28,6 +31,10 @@ COPY ./name-update.cabal /opt/name-update-2434/src/name-update.cabal
 # RUN cabal v2-update
 RUN cabal update && cabal v2-build --only-dependencies
 
+################################################################################
+# Build
+################################################################################
+
 FROM dependency as builder
 
 # Build & install application.
@@ -36,9 +43,8 @@ COPY src/hs /opt/name-update-2434/src/src/hs
 RUN cabal v2-build \
  && cabal v2-install --installdir=/opt/name-update-2434/bin --install-method=copy
 
-################################################################################
 # Dhall
-################################################################################
+#######
 
 COPY src/dhall /opt/name-update-2434/src/src/dhall
 
@@ -58,8 +64,5 @@ RUN apt-get update && apt-get install curl -y
 RUN useradd -ms /bin/bash apiuser
 RUN chown -R apiuser:apiuser /opt/name-update-2434
 USER apiuser
-
-# Set the working directory as /opt/name-update-2434/.
-# WORKDIR /opt/name-update-2434
 
 CMD /opt/name-update-2434/bin/name-update-api
