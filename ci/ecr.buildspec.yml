@@ -9,7 +9,6 @@ env:
     # IMAGE_REPO_URL: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com
     IMAGE_REPO_URL: 643788824189.dkr.ecr.ap-northeast-1.amazonaws.com
     IMAGE_REPO_NAME: hogeyama/nnu
-    IMAGE_TAG: latest
 
 phases:
   install:
@@ -17,7 +16,7 @@ phases:
       - find .
       - echo Logging in to Amazon ECR...
       - aws ecr get-login-password --region ${AWS_DEFAULT_REGION} | docker login --username AWS --password-stdin ${IMAGE_REPO_URL}
-  pre-build:
+  pre_build:
     commands:
       - docker pull -t ${IMAGE_REPO_NAME}:dependency
       - docker build --cache-from ${IMAGE_REPO_URL}/${IMAGE_REPO_NAME}:dependency -t ${IMAGE_REPO_NAME}:dependency --target dependency .
@@ -33,4 +32,4 @@ phases:
     commands:
       - echo Build completed on `date`
       - echo Pushing the Docker image...
-      - docker push ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${IMAGE_REPO_NAME}:${IMAGE_TAG}
+      - docker push ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${IMAGE_REPO_NAME}:latest
