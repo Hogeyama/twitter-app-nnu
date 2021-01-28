@@ -9,4 +9,3 @@ main :: IO ()
 main = Util.printAnyError $ do
     config <- Config.createConfigFromEnvVars
     runRIO config Server.defaultMain
-
