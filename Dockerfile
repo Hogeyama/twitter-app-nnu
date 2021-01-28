@@ -1,4 +1,4 @@
-FROM haskell:8.10.2-buster as builder
+FROM haskell:8.10.2-buster as dependency
 
 ENV LANG C.UTF-8
 
@@ -6,16 +6,9 @@ ENV LANG C.UTF-8
 # apt-get
 ################################################################################
 
-# Install required packages.
-# RUN apt-get update && apt-get install -y \
-#       xz-utils gcc libgmp-dev zlib1g-dev \
-#       libpq-dev \
-#       tree iputils-ping vim-nox \
-#       libtinfo-dev \
-#       fonts-ipaexfont-gothic libcurl4-openssl-dev
-
-# Remove apt caches to reduce the size of our container.
-# RUN rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y \
+    postgresql-11 \
+    postgresql-server-dev-11
 
 ################################################################################
 # Haskell
@@ -35,6 +28,8 @@ COPY ./name-update.cabal /opt/name-update-2434/src/name-update.cabal
 # RUN cabal v2-update
 RUN cabal update && cabal v2-build --only-dependencies
 
+FROM dependency as builder
+
 # Build & install application.
 COPY LICENSE /opt/name-update-2434/src/
 COPY src/hs /opt/name-update-2434/src/src/hs
@@ -50,6 +45,14 @@ COPY src/dhall /opt/name-update-2434/src/src/dhall
 ################################################################################
 # Run
 ################################################################################
+
+FROM debian:buster-slim as runner
+COPY --from=builder /opt/name-update-2434/ /opt/name-update-2434/
+COPY --from=builder /usr/lib/x86_64-linux-gnu/* /usr/lib/x86_64-linux-gnu/
+COPY --from=builder /lib/x86_64-linux-gnu/* /lib/x86_64-linux-gnu/
+COPY --from=builder /usr/bin/curl /usr/bin/curl
+RUN apt-get update && apt-get install curl -y
+
 
 # Add the apiuser and setup their PATH.
 RUN useradd -ms /bin/bash apiuser

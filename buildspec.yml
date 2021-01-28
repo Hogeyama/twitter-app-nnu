@@ -17,7 +17,7 @@ phases:
   pre_build:
     commands:
       - find .
-      - echo $OAUTH_CONSUMER_KEY
+      - find /opt/
     finally: []
   build:
     commands: []
