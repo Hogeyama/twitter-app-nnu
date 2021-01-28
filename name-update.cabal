@@ -111,7 +111,7 @@ library
   hs-source-dirs:     src/hs/lib
   default-language:   Haskell2010
 
-executable name-update-api
+executable name-update-2434
   import: common-options
   main-is:            Main.hs
   other-modules:      Paths_name_update

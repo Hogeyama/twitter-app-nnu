@@ -39,7 +39,7 @@ FROM dependency as builder
 
 # Build & install application.
 COPY LICENSE /opt/name-update-2434/src/
-COPY src/hs /opt/name-update-2434/src/src/hs
+COPY sc/hs /opt/name-update-2434/src/src/hs
 RUN cabal v2-build \
  && cabal v2-install --installdir=/opt/name-update-2434/bin --install-method=copy
 
@@ -65,4 +65,4 @@ RUN useradd -ms /bin/bash apiuser
 RUN chown -R apiuser:apiuser /opt/name-update-2434
 USER apiuser
 
-CMD /opt/name-update-2434/bin/name-update-api
+CMD /opt/name-update-2434/bin/name-update-2434
