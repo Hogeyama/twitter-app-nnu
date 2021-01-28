@@ -13,17 +13,30 @@ phases:
   install:
     commands:
       - echo Logging in to Amazon ECR...
-      - aws ecr get-login-password --region ${AWS_DEFAULT_REGION} | docker login --username AWS --password-stdin ${IMAGE_REPO_URL}
+      - >
+        aws ecr get-login-password --region ${AWS_DEFAULT_REGION}
+        | docker login --username AWS --password-stdin ${IMAGE_REPO_URL}
   pre_build:
     commands:
-      - docker build --cache-from=${IMAGE_REPO_URL}/${IMAGE_REPO_NAME}:dependency --build-arg BUILDKIT_INLINE_CACHE=1 -t ${IMAGE_REPO_NAME}:dependency --target dependency .
+      - >
+        docker build
+        --cache-from ${IMAGE_REPO_URL}/${IMAGE_REPO_NAME}:dependency
+        --build-arg BUILDKIT_INLINE_CACHE=1
+        --tag ${IMAGE_REPO_NAME}:dependency
+        --target dependency
+        .
       - docker tag ${IMAGE_REPO_NAME}:dependency ${IMAGE_REPO_URL}/${IMAGE_REPO_NAME}:dependency
       - docker push ${IMAGE_REPO_URL}/${IMAGE_REPO_NAME}:dependency
   build:
     commands:
       - echo Build started on `date`
       - echo Building the Docker image...
-      - docker build --cache-from=${IMAGE_REPO_NAME}:dependency --build-arg BUILDKIT_INLINE_CACHE=1 -t ${IMAGE_REPO_NAME}:latest .
+      - >
+        docker build
+        --cache-from ${IMAGE_REPO_NAME}:dependency
+        --build-arg BUILDKIT_INLINE_CACHE=1
+        --tag ${IMAGE_REPO_NAME}:latest
+        .
       - docker tag ${IMAGE_REPO_NAME}:latest ${IMAGE_REPO_URL}/${IMAGE_REPO_NAME}:latest
   post_build:
     commands:
