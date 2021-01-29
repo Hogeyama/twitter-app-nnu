@@ -4,11 +4,11 @@ env:
   shell: bash
   variables:
     NijisanjiNameUpdateTest: 1
-  secrets-manager:
-    OAUTH_CONSUMER_KEY: "nijisanji-name-update:OAUTH_CONSUMER_KEY"
-    OAUTH_CONSUMER_SECRET: "nijisanji-name-update:OAUTH_CONSUMER_SECRET"
-    ALL_OAUTH_ACCESS_TOKEN: "nijisanji-name-update:TEST_OAUTH_ACCESS_TOKEN"
-    ALL_OAUTH_ACCESS_SECRET: "nijisanji-name-update:TEST_OAUTH_ACCESS_SECRET"
+  parameter-store:
+    OAUTH_CONSUMER_KEY: "/CodeBuild/NijisanjiNameUpdate/OAUTH_CONSUMER_KEY"
+    OAUTH_CONSUMER_SECRET: "/CodeBuild/NijisanjiNameUpdate/OAUTH_CONSUMER_SECRET"
+    ALL_OAUTH_ACCESS_TOKEN: "/CodeBuild/NijisanjiNameUpdate/TEST_OAUTH_ACCESS_TOKEN"
+    ALL_OAUTH_ACCESS_SECRET: "/CodeBuild/NijisanjiNameUpdate/TEST_OAUTH_ACCESS_SECRET"
 
 phases:
   install:
