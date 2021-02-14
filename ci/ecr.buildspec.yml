@@ -4,6 +4,7 @@ env:
   shell: bash
   variables:
     DOCKER_BUILDKIT: 1
+    AWS_ACCOUNT_ID: 643788824189
     PUBLIC_ECR_URL: public.ecr.aws/q3v2w3q5
     IMAGE_REPO_NAME: hogeyama/nnu
   parameter-store:
@@ -16,11 +17,9 @@ phases:
       - echo Installing AWS CLI v2...
       - curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
       - unzip -q awscliv2.zip
-      - ./aws/install --update --bin-dir /root/.pyenv/shims/
+      - ./aws/install --update --bin-dir /root/.pyenv/shims
       - echo Logging in to Docker Hub...
-      - >
-        echo ${DOCKERHUB_PASSWORD}
-        | docker login --username AWS ${DOCKERHUB_USERNAME} --password-stdin
+      - docker login --username ${DOCKERHUB_USERNAME} --password ${DOCKERHUB_PASSWORD} "https://index.docker.io/v1/"
       - echo Logging in to Amazon ECR...
       - >
         aws ecr-public get-login-password --region us-east-1
@@ -30,7 +29,7 @@ phases:
       - echo Updating dependency image...
       - >
         docker build
-        --cache-from ${PUBLIC_ECR_URL}/${IMAGE_REPO_NAME}:dependency
+        --cache-from ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${IMAGE_REPO_NAME}:dependency
         --build-arg BUILDKIT_INLINE_CACHE=1
         --tag ${IMAGE_REPO_NAME}:dependency
         --target dependency
