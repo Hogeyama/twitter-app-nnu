@@ -4,7 +4,7 @@ env:
   shell: bash
   variables:
     DOCKER_BUILDKIT: 1
-    AWS_ACCOUNT_ID: 643788824189
+    PUBLIC_ECR_URL: public.ecr.aws/q3v2w3q5
     IMAGE_REPO_NAME: hogeyama/nnu
 
 phases:
@@ -12,19 +12,19 @@ phases:
     commands:
       - echo Logging in to Amazon ECR...
       - >
-        aws ecr get-login-password --region ${AWS_DEFAULT_REGION}
-        | docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com
+        aws ecr-public get-login-password --region us-east-1
+        | docker login --username AWS --password-stdin ${PUBLIC_ECR_URL}
   pre_build:
     commands:
       - >
         docker build
-        --cache-from ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${IMAGE_REPO_NAME}:dependency
+        --cache-from ${PUBLIC_ECR_URL}/${IMAGE_REPO_NAME}:dependency
         --build-arg BUILDKIT_INLINE_CACHE=1
         --tag ${IMAGE_REPO_NAME}:dependency
         --target dependency
         .
-      - docker tag ${IMAGE_REPO_NAME}:dependency ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${IMAGE_REPO_NAME}:dependency
-      - docker push ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${IMAGE_REPO_NAME}:dependency
+      - docker tag ${IMAGE_REPO_NAME}:dependency ${PUBLIC_ECR_URL}/${IMAGE_REPO_NAME}:dependency
+      - docker push ${PUBLIC_ECR_URL}/${IMAGE_REPO_NAME}:dependency
   build:
     commands:
       - echo Build started on `date`
@@ -35,9 +35,9 @@ phases:
         --build-arg BUILDKIT_INLINE_CACHE=1
         --tag ${IMAGE_REPO_NAME}:latest
         .
-      - docker tag ${IMAGE_REPO_NAME}:latest ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${IMAGE_REPO_NAME}:latest
+      - docker tag ${IMAGE_REPO_NAME}:latest ${PUBLIC_ECR_URL}/${IMAGE_REPO_NAME}:latest
   post_build:
     commands:
       - echo Build completed on `date`
       - echo Pushing the Docker image...
-      - docker push ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${IMAGE_REPO_NAME}:latest
+      - docker push ${PUBLIC_ECR_URL}/${IMAGE_REPO_NAME}:latest
