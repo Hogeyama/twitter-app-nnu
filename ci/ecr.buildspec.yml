@@ -7,8 +7,8 @@ env:
     PUBLIC_ECR_URL: public.ecr.aws/q3v2w3q5
     IMAGE_REPO_NAME: hogeyama/nnu
   parameter-store:
-    DOCKERHUB_USERNAME: "/Dockerhub/Username"
-    DOCKERHUB_PASSWORD: "/Dockerhub/Password"
+    DOCKERHUB_USERNAME: "/DockerHub/Username"
+    DOCKERHUB_PASSWORD: "/DockerHub/Password"
 
 phases:
   install:
