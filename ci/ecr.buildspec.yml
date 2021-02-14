@@ -4,7 +4,6 @@ env:
   shell: bash
   variables:
     DOCKER_BUILDKIT: 1
-    AWS_ACCOUNT_ID: 643788824189
     PUBLIC_ECR_URL: public.ecr.aws/q3v2w3q5
     IMAGE_REPO_NAME: hogeyama/nnu
   parameter-store:
@@ -22,9 +21,6 @@ phases:
       - docker login --username ${DOCKERHUB_USERNAME} --password ${DOCKERHUB_PASSWORD} "https://index.docker.io/v1/"
       - echo Logging in to Amazon ECR...
       - >
-        aws ecr get-login-password --region ${AWS_DEFAULT_REGION}
-        | docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com
-      - >
         aws ecr-public get-login-password --region us-east-1
         | docker login --username AWS --password-stdin ${PUBLIC_ECR_URL}
   pre_build:
@@ -32,7 +28,7 @@ phases:
       - echo Updating dependency image...
       - >
         docker build
-        --cache-from ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${IMAGE_REPO_NAME}:dependency
+        --cache-from ${PUBLIC_ECR_URL}/${IMAGE_REPO_NAME}:dependency
         --build-arg BUILDKIT_INLINE_CACHE=1
         --tag ${IMAGE_REPO_NAME}:dependency
         --target dependency
