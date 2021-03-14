@@ -1,19 +1,36 @@
-   let Group  =
+   let GroupLabel =
       < Nijisanji
       | Gamers
       | SEEDs
       | Since2019
       | Other : {label: Text}
       >
-in { Nijisanji = Group.Nijisanji
-   , Gamers    = Group.Gamers
-   , SEEDs     = Group.SEEDs
-   , Since2019 = Group.Since2019
-   , Member =
-      λ(group: Group)→λ(name: Text)→λ(screenName: Text)→λ(userId: Natural)→
+in let Member =
+      { exGroup : GroupLabel
+      , liverName : Text
+      , screenName : Text
+      , userId : Natural
+      }
+in let Group =
+      { groupLabel : GroupLabel
+      , listId : Natural
+      , members : List Member
+      }
+in { Nijisanji = GroupLabel.Nijisanji
+   , Gamers    = GroupLabel.Gamers
+   , SEEDs     = GroupLabel.SEEDs
+   , Since2019 = GroupLabel.Since2019
+   , MkMember =
+      λ(group: GroupLabel)→λ(name: Text)→λ(screenName: Text)→λ(userId: Natural)→
         { exGroup = group
         , liverName = name
         , screenName = screenName
         , userId = userId
+        }
+   , MkGroup =
+      λ(group: GroupLabel)→λ(listId: Natural)→λ(members: List Member)→
+        { groupLabel = group
+        , listId = listId
+        , members = members
         }
    }

@@ -1,7 +1,9 @@
    let types = ./types.dhall
 in let SEEDs     = types.SEEDs
-in let Member    = types.Member
-in [ -- 一期
+in let Member    = types.MkMember
+in let Group     = types.MkGroup SEEDs
+in let members =
+   [ -- 一期
      Member SEEDs "ドーラ"                 "___Dola"            1002073779848151041
    -- , Member SEEDs "海夜叉神"               "god_yaksa23"        1000032460741033985
    -- , Member SEEDs "名伽尾アズマ"           "azuma_dazo"         1002069549221478400
@@ -44,3 +46,5 @@ in [ -- 一期
    , Member SEEDs "ロキソニン太郎"         "Roki_2434"          1265253700970311681
    , Member SEEDs "クワガタ成瀬"           "KuwaKabu_Naruse"    1250708362968223747
    ]
+in let listId = 1086003364251557888
+in Group listId members

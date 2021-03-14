@@ -1,11 +1,17 @@
 module Main (main) where
 
 import           RIO
-import qualified Server
-import qualified Config
 import qualified Util
+import           App.TwitterBot as Bot
 
 main :: IO ()
 main = Util.printAnyError $ do
-    config <- Config.createConfigFromEnvVars
-    runRIO config Server.defaultMain
+    runConc $ mconcat $ map conc
+      [ Bot.app
+          [ Bot.testAppConfig
+          -- , Bot.nijisanjiAppConfig
+          -- , Bot.gamersAppConfig
+          -- , Bot.seedsAppConfig
+          -- , Bot.since2019AppConfig
+          ]
+      ]

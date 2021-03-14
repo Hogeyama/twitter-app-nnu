@@ -1,33 +1,38 @@
 module App.MitoSchedule where
 
 import           RIO
-import qualified RIO.List           as L
-import qualified RIO.List.Partial   as L
-import           RIO.Char           (isSpace)
-import           Text.HTML.Scalpel
-import           System.Process
-import           App.TwitterBot     (twConfigFromEnv, loopWithDelaySec, call_', Tweet(..))
-import           Util
-import qualified Web.Twitter.Conduit            as Tw
+import qualified RIO.List            as L
+import qualified RIO.List.Partial    as L
+import           RIO.Char            (isSpace)
+import           Text.HTML.Scalpel   (Scraper, scrapeStringLike, chroot, chroots, hasClass, text, (@:), (@=))
+import           System.Process      (readProcess)
+import qualified Web.Twitter.Conduit as Tw
 
-app :: MonadIO m => m ()
+import           Util
+import           Web.Twitter.API     as TwitterApi
+
+app :: forall m. MonadIO m => m ()
 app = do
-    twConfig <- twConfigFromEnv (Just "MS")
     state <- newTVarIO Nothing
-    runRIO twConfig $ loopWithDelaySec 60 $ printAnyError $ getSchedule >>= \case
-        Nothing -> notifyHogeyamaSlack "MitoSchedule failed"
-        Just m  -> do
-          old <- readTVarIO state
-          atomically $ writeTVar state (Just m)
-          when (isJust old && old /= Just m) $ do
-            writeTextToFile m "/tmp/a.png"
-            r <- tryAny $ call_' @Tweet $ Tw.updateWithMedia "🐰" (Tw.MediaFromFile "/tmp/a.png")
-            case r of
-              Left e -> do notifyHogeyamaSlack $ fromString $ mconcat
-                            [ "twitter error: ", show e, "\n"
-                            , "schedule: ", m
-                            ]
-              Right _ -> pure ()
+    twitterApi <- TwitterApi.defaultImpl <$> twConfigFromEnv "MS"
+    runRIO Env{twitterApi} $ loopWithDelaySec 60 $ printAnyError $ getSchedule >>= \case
+      Nothing -> notifyHogeyamaSlack "MitoSchedule failed"
+      Just m  -> do
+        old <- readTVarIO state
+        atomically $ writeTVar state (Just m)
+        when (isJust old && old /= Just m) $ do
+          writeTextToFile m "/tmp/a.png"
+          r <- tryAny $ call' @Tweet $ Tw.updateWithMedia "🐰" (Tw.MediaFromFile "/tmp/a.png")
+          case r of
+            Left e -> do notifyHogeyamaSlack $ fromString $ mconcat
+                          [ "twitter error: ", show e, "\n"
+                          , "schedule: ", m
+                          ]
+            Right _ -> pure ()
+newtype Env = Env { twitterApi :: TwitterApi (RIO Env) }
+  deriving stock (Generic)
+instance HasTwitterAPI (RIO Env) Env where
+  twitterApiL = #twitterApi
 
 writeTextToFile :: MonadIO m => String -> FilePath -> m ()
 writeTextToFile contents png = do

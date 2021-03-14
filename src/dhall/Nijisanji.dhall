@@ -1,7 +1,9 @@
    let types = ./types.dhall
 in let Nijisanji = types.Nijisanji
-in let Member    = types.Member
-in [ -- 一期生
+in let Member    = types.MkMember
+in let Group     = types.MkGroup Nijisanji
+in let members =
+  [ -- 一期生
     Member Nijisanji "月ノ美兎"      "MitoTsukino"    958737597336928256
   , Member Nijisanji "勇気ちひろ"    "Chihiro_yuki23" 958767484902957056
   , Member Nijisanji "える"          "Elu_World"      958726740108484608
@@ -24,3 +26,5 @@ in [ -- 一期生
   -- サブアカウント
   , Member Nijisanji "勇気ちひろ2nd" "chihiro_2434"   1252111251741630464
   ]
+in let listId = 1086003364310208512
+in Group listId members

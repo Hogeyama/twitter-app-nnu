@@ -1,14 +1,16 @@
    let types = ./types.dhall
 in let Since2019 = types.Since2019
-in let Member    = types.Member
-in [ Member Since2019 "童田明治"               "warabeda_meiji"  1082065005061652480
+in let Member    = types.MkMember
+in let Group     = types.MkGroup Since2019
+in let members =
+   [ Member Since2019 "童田明治"               "warabeda_meiji"  1082065005061652480
    -- , Member Since2019 "久遠千歳"               "kudou_chitose"   1081927064033185794
    , Member Since2019 "夢月ロア"               "yuzuki_roa"      1085498064645705728
    , Member Since2019 "郡道美玲"               "g9v9g_mirei"     1085375212575571968
    , Member Since2019 "語部紡"                 "KataribeTsumugu" 1088046328423141380
    , Member Since2019 "瀬戸美夜子"             "seto_miyako"     1088029978761977856
    , Member Since2019 "小野町春香"             "onomachi_haruka" 1086415881154875392
-   , Member Since2019 "御伽原江良"             "OtogibaraEra"    1088023486583304192
+   -- , Member Since2019 "御伽原江良"             "OtogibaraEra"    1088023486583304192
    , Member Since2019 "戌亥とこ"               "inui_toko"       1107557844855844864
    , Member Since2019 "アンジュ・カトリーナ"   "Ange_Katrina_"   1099996270947528704
    , Member Since2019 "リゼ・ヘルエスタ"       "Lize_Helesta"    1107935587271467008
@@ -58,5 +60,7 @@ in [ Member Since2019 "童田明治"               "warabeda_meiji"  10820650050
    , Member Since2019 "北小路ヒスイ"           "Hisui_Kitakoji"  1289831706573250561
    , Member Since2019 "西園チグサ"             "Chigusa_24zono"  1289884632637349888
    -- サブアカウント
-   , Member Since2019 "ギバさぶ郎"             "GB___2"          1250653534221033473
+   -- , Member Since2019 "ギバさぶ郎"             "GB___2"          1250653534221033473
    ]
+in let listId = 1086023933881712640
+in Group listId members

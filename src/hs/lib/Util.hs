@@ -1,17 +1,14 @@
-
 module Util where
 
 import           RIO
-import           RIO.List
-import qualified RIO.Text as T
 import           RIO.Time
-import           System.Process
-import           Data.Char      (showLitChar, isAscii)
+import           Network.HTTP.Simple as HTTP
+import           Data.Aeson (object, (.=))
 
 printAnyError :: MonadUnliftIO m => m () -> m ()
 printAnyError m = tryAnyDeep m >>= \case
     Left e -> do
-      hPutBuilder stderr $ getUtf8Builder $ displayShow e
+      print e
       notifyHogeyamaSlack (tshow e)
     _ -> return ()
 
@@ -20,26 +17,22 @@ print = hPutBuilder stdout . getUtf8Builder . (<>"\n") . displayShow
 
 notifyHogeyamaSlack :: MonadIO m => Text -> m ()
 notifyHogeyamaSlack msg = liftIO $ do
-    callCommand $ RIO.List.intercalate " "
-      [ "curl -X POST -H 'Content-type: application/json'"
-      , "--data '{\"text\":" <> quote (T.unpack msg) <> "}'"
-      , "https://hooks.slack.com/services/***REMOVED***"
-      ]
-  where
-    quote s = "\"" ++ concatMap escapeChar s ++ "\""
-    escapeChar c
-      | c == '"'  = "\\\""
-      | isAscii c = showLitChar c ""
-      | otherwise = [c]
-
-_JST :: TimeZone
-_JST = hoursToTimeZone 9
+    let url = "https://hooks.slack.com/services/***REMOVED***"
+        body = object [ "text" .= msg ]
+    req <- HTTP.parseRequest url
+        <&> HTTP.setRequestMethod "POST"
+        <&> setRequestBodyJSON body
+    void $ httpNoBody req
 
 utcToJST :: UTCTime -> LocalTime
-utcToJST = utcToLocalTime _JST
+utcToJST = utcToLocalTime (hoursToTimeZone 9)
 
 jstToUTC :: LocalTime -> UTCTime
-jstToUTC = localTimeToUTC _JST
+jstToUTC = localTimeToUTC (hoursToTimeZone 9)
 
 getCurrentTimeInJST :: MonadIO m => m LocalTime
 getCurrentTimeInJST = utcToLocalTime (hoursToTimeZone 9) <$> getCurrentTime
+
+loopWithDelaySec :: MonadIO m => Int -> m () -> m ()
+loopWithDelaySec n m = forever $ m >> threadDelay (n * 1000 * 1000)
+

@@ -18,25 +18,19 @@ common common-options
     , lens
     , monad-logger
     , mtl
-    , persistent             ^>=2.10.5.2
-    , persistent-postgresql  ^>=2.10.1.2
-    , persistent-template    ^>=2.8.2.3
     , process
     , read-env-var
     , rio                    >=0.1.16.0
     , scalpel
-    , servant
-    , servant-server         ^>=0.18
     , text
     , time
+    , microlens-platform
     , transformers
+    , http-conduit
     , twitter-conduit        ^>=0.4.0
     , twitter-types          ^>=0.10.0
     , twitter-types-lens     ^>=0.10.0
-    , wai                    ^>=3.2.2.1
-    , wai-cors               ^>=0.2.7
-    , wai-extra              ^>=3.0.29.1
-    , warp                   ^>=3.3.9
+    , generic-lens
 
   ghc-options:
     -Wall -Wcompat -Widentities -Wincomplete-uni-patterns
@@ -97,15 +91,10 @@ common common-options
 library
   import: common-options
   exposed-modules:
-    App.InitializeDB
-    App.MakeSnapshot
     App.MitoSchedule
     App.TwitterBot
-    Config
-    Data.Extensible.Reexport
-    Models
+    Web.Twitter.API
     Nijisanji
-    Server
     Util
   other-modules:      Paths_name_update
   hs-source-dirs:     src/hs/lib
