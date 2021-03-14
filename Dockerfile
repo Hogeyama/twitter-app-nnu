@@ -23,6 +23,7 @@ FROM dependency as builder
 # Build & install application.
 COPY LICENSE /opt/name-update-2434/src/
 COPY src /opt/name-update-2434/src/src
+RUN find /opt/name-update-2434/src/src
 RUN cabal v2-build \
  && cabal v2-install --installdir=/opt/name-update-2434/bin --install-method=copy
 
