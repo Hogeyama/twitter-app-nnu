@@ -11,7 +11,7 @@ module App.TwitterBot
 
 import           RIO                            hiding (Data)
 import qualified RIO.List                       as List
-import           RIO.Char                       (isAscii)
+import           RIO.Char                       (isAscii, toUpper)
 import qualified RIO.Map                        as M
 import qualified RIO.Text                       as T
 import           RIO.Time
@@ -34,7 +34,7 @@ app :: MonadUnliftIO m => [AppConfig] -> m ()
 app configs = runConc $ mconcat $ map mainWrapper configs
   where
     mainWrapper appConfig = conc $ do
-      let prefix = show $ groupLabel $ group appConfig
+      let prefix = map toUpper $ show $ groupLabel $ group appConfig
       twitterApi <- TwitterApi.defaultImpl <$> twConfigFromEnv prefix
       runRIO Env{appConfig,twitterApi} mainLoop
 
