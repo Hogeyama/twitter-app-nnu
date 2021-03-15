@@ -39,6 +39,7 @@ COPY --from=builder /usr/bin/curl /usr/bin/curl
 # Add the apiuser and setup their PATH.
 RUN useradd -ms /bin/bash apiuser
 RUN chown -R apiuser:apiuser /opt/name-update-2434
+RUN apt-get update && apt-get install -y ca-certificates
 USER apiuser
 
 CMD /opt/name-update-2434/bin/name-update-2434
