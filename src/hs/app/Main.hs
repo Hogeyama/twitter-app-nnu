@@ -6,6 +6,8 @@ import           App.TwitterBot as Bot
 
 main :: IO ()
 main = Util.printAnyError $ do
+    Util.print @_ @String "hello"
+    Util.notifyHogeyamaSlack "hello"
     runConc $ mconcat $ map conc
       [ Bot.app
           [ Bot.testAppConfig
