@@ -1,4 +1,3 @@
-
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# OPTIONS_GHC -Wno-partial-fields #-}
 
@@ -91,10 +90,10 @@ instance FromDhall Group
 {-# NOINLINE since2019 #-}
 {-# NOINLINE testGroup #-}
 nijisanji, gamers, seeds, since2019, testGroup :: Group
-nijisanji = unsafePerformIO $ Dhall.detailed $ Dhall.inputFile Dhall.auto "./src/dhall/Nijisanji.dhall"
-gamers    = unsafePerformIO $ Dhall.detailed $ Dhall.inputFile Dhall.auto "./src/dhall/Gamers.dhall"
-seeds     = unsafePerformIO $ Dhall.detailed $ Dhall.inputFile Dhall.auto "./src/dhall/SEEDs.dhall"
-since2019 = unsafePerformIO $ Dhall.detailed $ Dhall.inputFile Dhall.auto "./src/dhall/Since2019.dhall"
+nijisanji = unsafePerformIO $ readDhall "./src/dhall/Nijisanji.dhall"
+gamers    = unsafePerformIO $ readDhall "./src/dhall/Gamers.dhall"
+seeds     = unsafePerformIO $ readDhall "./src/dhall/SEEDs.dhall"
+since2019 = unsafePerformIO $ readDhall "./src/dhall/Since2019.dhall"
 testGroup = Group
     { groupLabel = Other "Test"
     , listId     = 1371129437970862080
@@ -105,4 +104,10 @@ testGroup = Group
                     , members since2019
                     ]
     }
+readDhall :: FilePath -> IO Group
+readDhall f = do
+    -- content <- readFileUtf8 f
+    -- Dhall.detailed $ Dhall.input Dhall.auto content
+    Dhall.detailed $ Dhall.input Dhall.auto $ fromString f
+    -- Dhall.detailed $ Dhall.inputFile Dhall.auto f
 

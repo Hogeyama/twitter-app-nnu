@@ -8,15 +8,17 @@ module Web.Twitter.API
   , HasTwConfig(..)
   , Tweet(..)
   , tweet
+  , twConfigFromEnv
   , MyUser(..)
   , module X
-  ,twConfigFromEnv) where
+  ) where
 
 import           RIO
 import qualified RIO.Text                       as T
 import           RIO.Time
 
 import qualified Util
+import           Data.Aeson                     (FromJSON)
 import qualified Data.Aeson                     as J
 import           Data.Generics.Labels           ()
 import qualified Data.ByteString.Char8          as BC
@@ -27,7 +29,6 @@ import           Web.Twitter.Conduit            as X hiding
                                                    )
 import           Web.Twitter.Conduit.Parameters as X hiding
                                                    ( map )
-import Data.Aeson (FromJSON)
 import           System.IO.Unsafe               (unsafePerformIO)
 import           Prelude                        (read)
 import           System.Environment             (getEnv)

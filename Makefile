@@ -104,3 +104,20 @@ local-get:
 	'localhost:3000/Since2019' \
     | jq .
 
+docker-dep: DOCKER_BUILDKIT=1
+docker-dep:
+	docker build \
+		--cache-from public.ecr.aws/q3v2w3q5/hogeyama/nnu:dependency \
+		--build-arg BUILDKIT_INLINE_CACHE=1 \
+		--tag hogeyama/nnu:dependency \
+		--target dependency \
+		.
+
+docker-build: DOCKER_BUILDKIT=1
+docker-build:
+	docker build \
+		--cache-from hogeyama/nnu:dependency \
+		--build-arg BUILDKIT_INLINE_CACHE=1 \
+		--tag hogeyama/nnu:latest \
+		.
+

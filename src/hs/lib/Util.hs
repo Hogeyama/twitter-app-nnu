@@ -1,4 +1,13 @@
-module Util where
+module Util
+  ( print
+  , printErr
+  , printAnyError
+  , utcToJST
+  , jstToUTC
+  , getCurrentTimeInJST
+  , loopWithDelaySec
+  , notifyHogeyamaSlack
+  ) where
 
 import           RIO
 import           RIO.Time
@@ -12,8 +21,11 @@ printAnyError m = tryAnyDeep m >>= \case
       notifyHogeyamaSlack (tshow e)
     _ -> return ()
 
-print :: (MonadIO m, Show a) => a -> m ()
+print :: forall a m. (MonadIO m, Show a) => a -> m ()
 print = hPutBuilder stdout . getUtf8Builder . (<>"\n") . displayShow
+
+printErr :: forall a m. (MonadIO m, Show a) => a -> m ()
+printErr = hPutBuilder stderr . getUtf8Builder . (<>"\n") . displayShow
 
 notifyHogeyamaSlack :: MonadIO m => Text -> m ()
 notifyHogeyamaSlack msg = liftIO $ do

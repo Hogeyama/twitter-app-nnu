@@ -42,4 +42,5 @@ RUN chown -R apiuser:apiuser /opt/name-update-2434
 RUN apt-get update && apt-get install -y ca-certificates
 USER apiuser
 
+WORKDIR /opt/name-update-2434/src
 CMD /opt/name-update-2434/bin/name-update-2434
