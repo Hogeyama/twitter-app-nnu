@@ -43,9 +43,9 @@ phases:
         docker build
         --cache-from ${IMAGE_REPO_NAME}:dependency
         --build-arg BUILDKIT_INLINE_CACHE=1
-        --tag ${IMAGE_REPO_NAME}:latest
+        --tag ${IMAGE_REPO_NAME}:${IMAGE_REPO_PUSH_TAG}
         .
-      - docker tag ${IMAGE_REPO_NAME}:latest ${PUBLIC_ECR_URL}/${IMAGE_REPO_NAME}:latest
+      - docker tag ${IMAGE_REPO_NAME}:${IMAGE_REPO_PUSH_TAG} ${PUBLIC_ECR_URL}/${IMAGE_REPO_NAME}:${IMAGE_REPO_PUSH_TAG}
   post_build:
     commands:
       - echo Build completed on `date`
