@@ -102,3 +102,4 @@ executable name-update-2434
     , base         >=4.7      && <5
     , name-update
     , rio          >=0.1.16.0
+    , read-env-var
