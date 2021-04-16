@@ -12,8 +12,8 @@ main = Util.printAnyError $ do
     Util.notifyHogeyamaSlack "NNU on AWS has started"
     runConc $ mconcat $ map conc
       [ Bot.app
-          [ Bot.testAppConfig
-          , Bot.nijisanjiAppConfig
+          [ -- Bot.testAppConfig
+            Bot.nijisanjiAppConfig
           , Bot.gamersAppConfig
           , Bot.seedsAppConfig
           , Bot.since2019AppConfig
