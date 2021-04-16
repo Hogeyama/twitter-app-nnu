@@ -50,5 +50,4 @@ phases:
     commands:
       - echo Build completed on `date`
       - echo Pushing the Docker image...
-      - echo docker push ${PUBLIC_ECR_URL}/${IMAGE_REPO_NAME}:latest
-      - docker push ${PUBLIC_ECR_URL}/${IMAGE_REPO_NAME}:latest
+      - docker push ${PUBLIC_ECR_URL}/${IMAGE_REPO_NAME}:${IMAGE_REPO_PUSH_TAG}
