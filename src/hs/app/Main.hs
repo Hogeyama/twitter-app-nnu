@@ -10,7 +10,7 @@ main :: IO ()
 main = Util.printAnyError $ do
     setLocaleEncoding utf8
     setFileSystemEncoding utf8
-    isTest <- readEnvDef "NNU_TEST" True
+    isTest <- readEnvDef "NNU_TEST" False
     Util.notifyHogeyamaSlack "NNU on AWS has started"
     Util.notifyHogeyamaSlack $ "isTest = " <> tshow isTest
     let appConfigs =
