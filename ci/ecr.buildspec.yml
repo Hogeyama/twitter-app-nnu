@@ -18,40 +18,40 @@ phases:
       - unzip -q awscliv2.zip
       - ./aws/install --update --bin-dir /root/.pyenv/shims
       - echo Logging in to Docker Hub...
-      - docker login --username ${DOCKERHUB_USERNAME} --password ${DOCKERHUB_PASSWORD} "https://index.docker.io/v1/"
+      - docker login --username "${DOCKERHUB_USERNAME}" --password "${DOCKERHUB_PASSWORD}" "https://index.docker.io/v1/"
       - echo Logging in to Amazon ECR...
       - >
         aws ecr-public get-login-password --region us-east-1
-        | docker login --username AWS --password-stdin ${PUBLIC_ECR_URL}
+        | docker login --username AWS --password-stdin "${PUBLIC_ECR_URL}"
   pre_build:
     commands:
       - echo Updating dependency image...
       - >
         docker build
-        --cache-from ${PUBLIC_ECR_URL}/${IMAGE_REPO_NAME}:dependency
+        --cache-from "${PUBLIC_ECR_URL}/${IMAGE_REPO_NAME}:dependency"
         --build-arg BUILDKIT_INLINE_CACHE=1
-        --tag ${IMAGE_REPO_NAME}:dependency
+        --tag "${IMAGE_REPO_NAME}:dependency"
         --target dependency
         .
-      - docker tag ${IMAGE_REPO_NAME}:dependency ${PUBLIC_ECR_URL}/${IMAGE_REPO_NAME}:dependency
-      - docker push ${PUBLIC_ECR_URL}/${IMAGE_REPO_NAME}:dependency
+      - docker tag "${IMAGE_REPO_NAME}:dependency" "${PUBLIC_ECR_URL}/${IMAGE_REPO_NAME}:dependency"
+      - docker push "${PUBLIC_ECR_URL}/${IMAGE_REPO_NAME}:dependency"
   build:
     commands:
       - echo Build started on `date`
       - echo Building the Docker image...
       - >
         docker build
-        --cache-from ${IMAGE_REPO_NAME}:dependency
+        --cache-from "${IMAGE_REPO_NAME}:dependency"
         --build-arg BUILDKIT_INLINE_CACHE=1
-        --tag ${IMAGE_REPO_NAME}:${IMAGE_REPO_PUSH_TAG}
+        --tag "${IMAGE_REPO_NAME}:${IMAGE_REPO_PUSH_TAG}"
         .
-      - docker tag ${IMAGE_REPO_NAME}:${IMAGE_REPO_PUSH_TAG} ${PUBLIC_ECR_URL}/${IMAGE_REPO_NAME}:${IMAGE_REPO_PUSH_TAG}
+      - docker tag "${IMAGE_REPO_NAME}:${IMAGE_REPO_PUSH_TAG}" "${PUBLIC_ECR_URL}/${IMAGE_REPO_NAME}:${IMAGE_REPO_PUSH_TAG}"
   post_build:
     commands:
       - echo Build completed on `date`
       - echo Pushing the Docker image...
-      - docker push ${PUBLIC_ECR_URL}/${IMAGE_REPO_NAME}:${IMAGE_REPO_PUSH_TAG}
-      - printf '[{"name":"nnu","imageUri":"%s"}]' ${PUBLIC_ECR_URL}/${IMAGE_REPO_NAME}:${IMAGE_REPO_PUSH_TAG} > imagedefinitions.json
+      - docker push "${PUBLIC_ECR_URL}/${IMAGE_REPO_NAME}:${IMAGE_REPO_PUSH_TAG}"
+      - printf '[{"name":"nnu","imageUri":"%s"}]' "${PUBLIC_ECR_URL}/${IMAGE_REPO_NAME}:${IMAGE_REPO_PUSH_TAG}" > imagedefinitions.json
 artifacts:
   files:
     - imagedefinitions.json

@@ -1,8 +1,8 @@
 module Main (main) where
 
 import           RIO
-import qualified Util
-import           App.TwitterBot     as Bot
+import qualified NNU.Util           as Util
+import           NNU.App.TwitterBot as Bot
 import           System.ReadEnvVar  (readEnvDef)
 import           GHC.IO.Encoding
 
@@ -23,5 +23,5 @@ main = Util.printAnyError $ do
             , Bot.since2019AppConfig
             ]
     runConc $ mconcat $ map conc
-      [ Bot.app appConfigs
+      [ Bot.runApps appConfigs
       ]
