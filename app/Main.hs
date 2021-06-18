@@ -1,27 +1,31 @@
-module Main (main) where
+module Main
+  ( main
+  ) where
 
-import           RIO
-import qualified NNU.Util           as Util
-import           NNU.App.TwitterBot as Bot
-import           System.ReadEnvVar  (readEnvDef)
 import           GHC.IO.Encoding
+import           NNU.App.TwitterBot            as Bot
+import           NNU.Logger
+import           RIO
+import           System.ReadEnvVar              ( readEnvDef )
+import qualified Data.Aeson as J
 
 main :: IO ()
-main = Util.printAnyError $ do
-    setLocaleEncoding utf8
-    setFileSystemEncoding utf8
+main = do
+  setLocaleEncoding utf8
+  setFileSystemEncoding utf8
+  runRIO defaultLogFunc' $ logAnyError $ do
     isTest <- readEnvDef "NNU_TEST" False
-    Util.notifyHogeyamaSlack "NNU on AWS has started"
-    Util.notifyHogeyamaSlack $ "isTest = " <> tshow isTest
-    let appConfigs =
-          if isTest then
-            [ Bot.testAppConfig ]
+    logI $ J.object
+      [ "msg" J..= ("NNU on AWS has started" :: Text)
+      , "is_test" J..= isTest
+      ]
+    let appConfigs = if isTest
+          then [Bot.testAppConfig]
           else
             [ Bot.nijisanjiAppConfig
             , Bot.gamersAppConfig
             , Bot.seedsAppConfig
             , Bot.since2019AppConfig
             ]
-    runConc $ mconcat $ map conc
-      [ Bot.runApps appConfigs
-      ]
+    Bot.runApps appConfigs
+  where logAnyError = flip withException $ logE . show @SomeException

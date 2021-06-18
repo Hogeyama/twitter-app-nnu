@@ -10,6 +10,7 @@ module NNU.App.TwitterBot
   , testAppConfig
   ) where
 
+import qualified Data.Aeson                    as J
 import           Data.Generics.Labels           ( )
 import           Data.Generics.Product          ( HasAny(the) )
 import qualified Data.Text.IO                  as T
@@ -21,6 +22,7 @@ import           NNU.Handler.Twitter            ( HasTwitterAPI
                                                 , TwitterApi
                                                 )
 import qualified NNU.Handler.Twitter           as TwitterApi
+import           NNU.Logger
 import           NNU.Nijisanji
 import           NNU.Util
 import           RIO                     hiding ( Data )
@@ -39,14 +41,14 @@ import           System.IO.Unsafe               ( unsafePerformIO )
 -- Main {{{
 -------------------------------------------------------------------------------
 
-runApps :: MonadUnliftIO m => [AppConfig] -> m ()
+runApps :: (HasLogFunc' env) => [AppConfig] -> RIO env ()
 runApps configs = runConc $ mconcat $ map (conc . runApp) configs
 
-runApp :: MonadUnliftIO m => AppConfig -> m ()
+runApp :: (HasLogFunc' env) => AppConfig -> RIO env ()
 runApp appConfig = do
   let prefix = map toUpper $ show $ groupLabel $ group appConfig
   twitterApi <- TwitterApi.defaultImpl <$> TwitterApi.twConfigFromEnv prefix
-  runRIO Env { appConfig, twitterApi } mainLoop
+  mapRIO (\super -> Env { appConfig, twitterApi, super }) mainLoop
 
 data AppConfig = AppConfig
   { group :: Group
@@ -64,15 +66,19 @@ class HasAppConfig env where
 
 type SimpleNameMap = Map Text Text
 
-data Env = Env
+data Env super = Env
   { appConfig  :: AppConfig
-  , twitterApi :: TwitterApi (RIO Env)
+  , twitterApi :: TwitterApi (RIO (Env super))
+  , super      :: super
   }
   deriving stock Generic
-instance HasAppConfig Env where
+instance HasAppConfig (Env super) where
   appConfigL = the @"appConfig"
-instance HasTwitterAPI Env where
+instance HasTwitterAPI (Env super) where
   twitterApiL = the @"twitterApi"
+instance HasGLogFunc super => HasGLogFunc (Env super) where
+  type GMsg (Env super) = GMsg super
+  gLogFuncL = the @"super" . gLogFuncL
 
 -- }}}
 
@@ -114,11 +120,20 @@ testData = unsafePerformIO $ newIORef Nothing
 -- Main loop {{{
 -------------------------------------------------------------------------------
 
-mainLoop :: forall env . (HasAppConfig env, HasTwitterAPI env) => RIO env ()
+
+logAndIgnoreError :: HasLogFunc' env => RIO env () -> RIO env ()
+logAndIgnoreError m = m `catchAnyDeep` (logE . show)
+
+mainLoop
+  :: forall env
+   . (HasAppConfig env, HasTwitterAPI env, HasLogFunc' env)
+  => RIO env ()
 mainLoop = do
   list <- getListParam
-  loopWithDelaySec 60 $ printAnyError $ do
-    print =<< getCurrentTime
+  loopWithDelaySec 60 $ logAndIgnoreError $ do
+    logD =<< do
+      now <- getCurrentTime
+      pure $ J.object ["message" J..= ("loop start" :: Text), "clock" J..= now]
     readData >>= \case
       Nothing      -> fetchData list >>= writeData
       Just oldData -> do
@@ -159,9 +174,7 @@ mainLoop = do
                 users
             of
               Nothing -> do
-                let msg = "fail to get the name of " <> liverName <> "\n"
-                hPutBuilder stdout $ encodeUtf8Builder msg
-                notifyHogeyamaSlack msg
+                logE $ liverName <> " not found"
                 return Nothing
               Just TwitterApi.User { userName } ->
                 return $ Just (liverName, userName)
@@ -170,14 +183,13 @@ mainLoop = do
     :: SimpleNameMap -> SimpleNameMap -> RIO env [(Member, Text, Text)]
   filterUpdated oldData newData = do
     Group { members } <- view (appConfigL . #group)
-    return $ do
-      m@Member {..}      <- members
-      (oldName, newName) <-
-        case (oldData, newData) & both %~ M.lookup liverName of
-          (Just oldName', Just newName') -> return (oldName', newName')
-          x -> error $ T.unpack $ liverName <> ": " <> tshow x
-      guard $ oldName /= newName
-      return (m, oldName, newName)
+    let updates = do
+          m@Member {..} <- members
+          case (oldData, newData) & both %~ M.lookup liverName of
+            (Just oldName, Just newName) | oldName /= newName ->
+              return (m, oldName, newName)
+            _ -> []
+    return updates
 
   processUpdated :: (Member, Text, Text) -> RIO env ()
   processUpdated (m@Member {..}, oldName, newName) = do
