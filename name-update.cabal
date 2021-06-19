@@ -1,6 +1,6 @@
 cabal-version: 2.4
 name:          name-update
-version:       0.2.0.0
+version:       0.2.1.0
 license:       BSD-3-Clause
 license-file:  LICENSE
 build-type:    Simple
@@ -63,43 +63,65 @@ common common-options
 library
   import:           common-options
 
-  -- cabal-fmt: expand ./src/hs/lib
+  -- cabal-fmt: expand ./lib
   exposed-modules:
-    App.MitoSchedule
-    App.TwitterBot
-    Nijisanji
-    Util
-    Web.Twitter.API
+    NNU.App.TwitterBot
+    NNU.Handler.Twitter
+    NNU.Logger
+    NNU.Nijisanji
+    NNU.TH
+    NNU.Util
 
   build-depends:
     , aeson
+    , amazonka
+    , amazonka-dynamodb
     , base                >=4.7      && <5
     , bytestring
     , containers
     , dhall               >=1.24.0
     , generic-lens
+    , hierarchical-env
     , http-conduit
+    , method
     , microlens-platform
     , mtl
-    , process
+    , read-env-var
+    , resourcet
     , rio                 >=0.1.16.0
-    , scalpel
+    , rio-orphans
+    , safe-exceptions
+    , template-haskell
     , text
     , time
     , twitter-conduit     ^>=0.4.0
 
   other-modules:    Paths_name_update
-  hs-source-dirs:   src/hs/lib
+  hs-source-dirs:   lib
   default-language: Haskell2010
 
 executable name-update-2434
   import:           common-options
   main-is:          Main.hs
   other-modules:    Paths_name_update
-  hs-source-dirs:   src/hs/app
+  hs-source-dirs:   app
   default-language: Haskell2010
   build-depends:
-    , base         >=4.7      && <5
+    , aeson
+    , base          >=4.7      && <5
     , name-update
-    , rio          >=0.1.16.0
     , read-env-var
+    , rio           >=0.1.16.0
+
+-- executable test
+--   import:           common-options
+--   main-is:          Test.hs
+--   other-modules:    Paths_name_update
+--   hs-source-dirs:   app
+--   default-language: Haskell2010
+--   build-depends:
+--     , base          >=4.7      && <5
+--     , generic-lens
+--     , name-update
+--     , rio           >=0.1.16.0
+--     , rio-orphans

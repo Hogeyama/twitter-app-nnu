@@ -3,7 +3,7 @@
 # Dependency
 ################################################################################
 
-FROM haskell:8.10.2-buster as dependency
+FROM haskell:8.10.4-buster as dependency
 ENV LANG C.UTF-8
 RUN apt-get update && apt-get install -y \
     postgresql-11 \
@@ -11,8 +11,16 @@ RUN apt-get update && apt-get install -y \
 RUN mkdir -p /opt/name-update-2434/bin
 RUN mkdir -p /opt/name-update-2434/src
 WORKDIR /opt/name-update-2434/src
+COPY ./cabal.project.freeze /opt/name-update-2434/src/cabal.project.freeze
+RUN cabal init -p name-update && cabal update && cabal install --lib \
+  rio \
+  generic-lens \
+  microlens-platform \
+  aeson \
+  amazonka-dynamodb \
+  dhall
 COPY ./name-update.cabal /opt/name-update-2434/src/name-update.cabal
-RUN cabal update && cabal v2-build --only-dependencies
+RUN cabal v2-build --only-dependencies
 
 ################################################################################
 # Build
@@ -21,9 +29,13 @@ RUN cabal update && cabal v2-build --only-dependencies
 FROM dependency as builder
 
 # Build & install application.
+ARG GIT_REVISION=UNKNOWN
 COPY LICENSE /opt/name-update-2434/src/
-COPY src /opt/name-update-2434/src/src
-RUN cabal v2-build \
+COPY app /opt/name-update-2434/src/app
+COPY lib /opt/name-update-2434/src/lib
+COPY conf /opt/name-update-2434/src/conf
+RUN export GIT_REVISION="$GIT_REVISION" \
+ && cabal v2-build \
  && cabal v2-install --installdir=/opt/name-update-2434/bin --install-method=copy
 
 ################################################################################

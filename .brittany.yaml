@@ -1,0 +1,48 @@
+conf_forward:
+  options_ghc:
+    - -XNoImplicitPrelude
+    - -XBangPatterns
+    - -XConstraintKinds
+    - -XDataKinds
+    - -XDefaultSignatures
+    - -XDeriveGeneric
+    - -XDerivingStrategies
+    - -XFlexibleContexts
+    - -XFlexibleInstances
+    - -XFunctionalDependencies
+    - -XGADTs
+    - -XInstanceSigs
+    - -XKindSignatures
+    - -XLambdaCase
+    - -XMultiParamTypeClasses
+    - -XMultiWayIf
+    - -XNamedFieldPuns
+    - -XOverloadedLabels
+    - -XOverloadedStrings
+    - -XPatternSynonyms
+    - -XPolyKinds
+    - -XRankNTypes
+    - -XRecordWildCards
+    - -XScopedTypeVariables
+    - -XStandaloneDeriving
+    - -XStrictData
+    - -XTupleSections
+    - -XTypeApplications
+    - -XTypeFamilies
+    - -XTypeFamilyDependencies
+    - -XTypeOperators
+    - -XViewPatterns
+conf_layout:
+  lconfig_cols: 100
+  lconfig_indentWhereSpecial: true
+  lconfig_indentListSpecial: true # -- use some special indentation for ","
+                                  # -- when creating zero-indentation
+                                  # -- multi-line list literals.
+  lconfig_columnAlignMode: ColumnAlignModeAlways
+  # lconfig_columnAlignMode: ColumnAlignModeUnanimously
+  lconfig_alignmentBreakOnMultiline: true
+  lconfig_hangingTypeSignature: true
+  lconfig_reformatModulePreamble: true
+  lconfig_allowSingleLineExportList: true
+  lconfig_allowHangingQuasiQuotes: true
+  lconfig_allowSinglelineRecord: true
