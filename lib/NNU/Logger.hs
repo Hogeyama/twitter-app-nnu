@@ -16,6 +16,7 @@ import qualified Data.Aeson                    as J
 import qualified NNU.TH                        as TH
 import qualified NNU.Util                      as Util
 import           RIO
+import qualified RIO.Text                      as T
 
 type LogFunc' = GLogFunc LogItem
 type HasLogFunc' env = (HasGLogFunc env, GMsg env ~ LogItem)
@@ -36,11 +37,14 @@ mkLogFunc' p = mkGLogFunc $ \stack (LogItem level msg) -> do
         LevelError     -> "error"
         LevelOther txt -> txt
   p level $ J.object
-    [ "location" J..= utf8BuilderToText (displayCallStack stack)
+    [ "location" J..= replaceColon (utf8BuilderToText (displayCallStack stack))
     , "log_level" J..= level'
-    , "message" J..= msg
+    , "body" J..= msg
     , "revision" J..= ($(TH.revision) :: Text)
     ]
+  where
+    replaceColon = T.map (\c -> if c == ':' then '-' else c)
+    -- Slackだと:5:がemojiになってしまうため
 
 log'
   :: forall l env
