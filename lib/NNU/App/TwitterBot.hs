@@ -216,7 +216,7 @@ mainLoop = do
               , "after" J..= newName
               ]
             url' = "twitter.com/" <> screenName
-        logI logMsg
+        logD logMsg
         void $ TwitterApi.tweet msg
 
 -- }}}
