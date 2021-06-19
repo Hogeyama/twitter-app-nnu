@@ -30,12 +30,15 @@ FROM dependency as builder
 
 # Build & install application.
 ARG GIT_REVISION=UNKNOWN
+COPY Setup.hs /opt/name-update-2434/src/
 COPY LICENSE /opt/name-update-2434/src/
 COPY app /opt/name-update-2434/src/app
 COPY lib /opt/name-update-2434/src/lib
 COPY conf /opt/name-update-2434/src/conf
+COPY test /opt/name-update-2434/src/test
 RUN export GIT_REVISION="$GIT_REVISION" \
  && cabal v2-build \
+ && cabal v2-test \
  && cabal v2-install --installdir=/opt/name-update-2434/bin --install-method=copy
 
 ################################################################################

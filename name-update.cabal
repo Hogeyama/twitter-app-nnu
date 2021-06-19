@@ -3,7 +3,14 @@ name:          name-update
 version:       0.2.1.1
 license:       BSD-3-Clause
 license-file:  LICENSE
-build-type:    Simple
+build-type:    Custom
+
+custom-setup
+  setup-depends:
+    , base
+    , Cabal
+    , cabal-doctest
+    , hspec
 
 common common-options
   ghc-options:
@@ -112,6 +119,50 @@ executable name-update-2434
     , name-update
     , read-env-var
     , rio           >=0.1.16.0
+
+test-suite spec
+  import:             common-options
+  type:               exitcode-stdio-1.0
+  hs-source-dirs:     test
+
+  -- cabal-fmt: expand test -Spec -Doctests
+  other-modules:      NNU.App.TwitterBotSpec
+  main-is:            Spec.hs
+  build-tool-depends: hspec-discover:hspec-discover -any
+
+  if impl(ghc >=8.4)
+    ghc-options: -Wno-missing-export-lists
+
+  if impl(ghc >=8.8)
+    ghc-options: -Wno-missing-deriving-strategies
+
+  build-depends:
+    , aeson
+    , base         >=4.7      && <5
+    , doctest
+    , hspec
+    , name-update
+    , QuickCheck
+    , rio          >=0.1.16.0
+
+test-suite doctests
+  import:         common-options
+  type:           exitcode-stdio-1.0
+  main-is:        Doctests.hs
+  hs-source-dirs: test
+  ghc-options:    -Wno-missing-import-lists
+  build-depends:
+    , aeson
+    , base         >=4.7      && <5
+    , doctest
+    , name-update
+    , rio          >=0.1.16.0
+
+  if impl(ghc >=8.4)
+    ghc-options: -Wno-missing-export-lists
+
+  if impl(ghc >=8.8)
+    ghc-options: -Wno-missing-deriving-strategies
 
 -- executable test
 --   import:           common-options
