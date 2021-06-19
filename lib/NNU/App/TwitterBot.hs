@@ -13,7 +13,6 @@ module NNU.App.TwitterBot
 import qualified Data.Aeson                    as J
 import           Data.Generics.Labels           ( )
 import           Data.Generics.Product          ( HasAny(the) )
-import qualified Data.Text.IO                  as T
 import           Lens.Micro.Platform           as L
                                                 ( (?~)
                                                 , both
@@ -32,9 +31,7 @@ import           RIO.Char                       ( isAscii
 import qualified RIO.List                      as List
 import qualified RIO.Map                       as M
 import qualified RIO.Text                      as T
-import           RIO.Time                       ( getCurrentTime
-                                                , getZonedTime
-                                                )
+import           RIO.Time                       ( getZonedTime )
 import           System.IO.Unsafe               ( unsafePerformIO )
 
 -------------------------------------------------------------------------------
@@ -131,9 +128,9 @@ mainLoop
 mainLoop = do
   list <- getListParam
   loopWithDelaySec 60 $ logAndIgnoreError $ do
-    logD =<< do
-      now <- getCurrentTime
-      pure $ J.object ["message" J..= ("loop start" :: Text), "clock" J..= now]
+    -- logD =<< do
+    --   now <- getCurrentTime
+    --   pure $ J.object ["message" J..= ("loop start" :: Text), "clock" J..= now]
     readData >>= \case
       Nothing      -> fetchData list >>= writeData
       Just oldData -> do
@@ -197,7 +194,7 @@ mainLoop = do
    where
     doTweet
       | T.all isAscii newName || T.all isAscii oldName
-      = notifyHogeyamaSlack $ "possibly personal information: " <> liverName
+      = logE $ "possibly personal information: " <> liverName
       | isTestMember m
       = do
         time <- liftIO getZonedTime
@@ -212,8 +209,14 @@ mainLoop = do
               , "⇑"
               , oldName
               ]
+            logMsg = J.object
+              [ "message" J..= ("screen name changed" :: Text)
+              , "member" J..= liverName
+              , "before" J..= oldName
+              , "after" J..= newName
+              ]
             url' = "twitter.com/" <> screenName
-        liftIO $ T.putStrLn msg
+        logI logMsg
         void $ TwitterApi.tweet msg
 
 -- }}}

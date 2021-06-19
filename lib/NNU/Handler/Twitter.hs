@@ -2,6 +2,7 @@
 module NNU.Handler.Twitter
   ( TwitterApi(..)
   , HasTwitterAPI(..)
+  , TwitterApiError(..)
   , call
   , call'
   , defaultImpl
@@ -22,7 +23,6 @@ import           Data.Aeson                     ( FromJSON )
 import qualified Data.Aeson                    as J
 import qualified Data.ByteString.Char8         as BC
 import           Data.Generics.Labels           ( )
-import qualified NNU.Util                      as Util
 import           Prelude                        ( read )
 import           System.Environment             ( getEnv )
 import           System.IO.Unsafe               ( unsafePerformIO )
@@ -43,6 +43,10 @@ newtype TwitterApi m = TwitterApi
   }
 class HasTwitterAPI env where
   twitterApiL :: Lens' env (TwitterApi (RIO env))
+
+newtype TwitterApiError = TwitterApiError J.Value
+  deriving stock (Show)
+instance Exception TwitterApiError
 
 call'
   :: forall r env apiName _responseType
@@ -68,21 +72,25 @@ defaultImpl TwConfig {..} = TwitterApi { callApi }
     => Twitter.APIRequest apiName _responseType
     -> m r
   callApi param = do
-    v <- liftIO $ Twitter.call' twInfo twManager param
-    case J.fromJSON v of
-      J.Success x -> return x
-      J.Error   e -> do
-        let msg =
-              T.unlines
-                [ "Error"
-                , "  request : " <> tshow param
-                , "  response: "
-                  <> decodeUtf8Lenient (toStrictBytes (J.encode v))
-                , "  error   : " <> tshow e
-                ] :: Text
-        Util.notifyHogeyamaSlack msg
-        hPutBuilder stdout $ encodeUtf8Builder msg
-        throwString e
+    v <- liftIO $ tryAnyDeep $ Twitter.call' twInfo twManager param
+    case v of
+      Right resp -> case J.fromJSON resp of
+        (J.Success x) -> return x
+        (J.Error   e) -> do
+          let msg = J.object
+                [ "message" J..= ("JSON decode error" :: Text)
+                , "request" J..= tshow param
+                , "response" J..= resp
+                , "error" J..= e
+                ]
+          throwIO $ TwitterApiError msg
+      Left e -> do
+        let msg = J.object
+              [ "message" J..= ("Twitter API call error" :: Text)
+              , "request" J..= show param
+              , "error" J..= show e
+              ]
+        throwIO $ TwitterApiError msg
 
 data TwConfig = TwConfig
   { twManager :: Manager

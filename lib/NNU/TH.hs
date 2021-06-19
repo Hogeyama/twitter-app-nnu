@@ -3,7 +3,6 @@ module NNU.TH
   ) where
 
 import           Language.Haskell.TH
-import           Language.Haskell.TH.Syntax
 import           RIO
 import           System.ReadEnvVar              ( lookupEnvDef )
 
