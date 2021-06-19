@@ -1,4 +1,5 @@
 {-# LANGUAGE ImplicitParams #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 module NNU.Logger
   ( LogFunc'
@@ -12,6 +13,7 @@ module NNU.Logger
   ) where
 
 import qualified Data.Aeson                    as J
+import qualified NNU.TH                        as TH
 import qualified NNU.Util                      as Util
 import           RIO
 
@@ -37,8 +39,8 @@ mkLogFunc' p = mkGLogFunc $ \stack (LogItem level msg) -> do
     [ "location" J..= utf8BuilderToText (displayCallStack stack)
     , "log_level" J..= level'
     , "message" J..= msg
+    , "revision" J..= ($(TH.revision) :: Text)
     ]
-
 
 log'
   :: forall l env

@@ -69,6 +69,7 @@ library
     NNU.Handler.Twitter
     NNU.Logger
     NNU.Nijisanji
+    NNU.TH
     NNU.Util
 
   build-depends:
@@ -85,10 +86,12 @@ library
     , method
     , microlens-platform
     , mtl
+    , read-env-var
     , resourcet
     , rio                 >=0.1.16.0
     , rio-orphans
     , safe-exceptions
+    , template-haskell
     , text
     , time
     , twitter-conduit     ^>=0.4.0
