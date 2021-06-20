@@ -77,7 +77,6 @@ library
     NNU.Logger
     NNU.Nijisanji
     NNU.TH
-    NNU.Util
 
   build-depends:
     , aeson
@@ -101,7 +100,7 @@ library
     , template-haskell
     , text
     , time
-    , twitter-conduit     ^>=0.4.0
+    , twitter-conduit     ^>=0.5.0
 
   other-modules:    Paths_name_update
   hs-source-dirs:   lib
@@ -126,7 +125,10 @@ test-suite spec
   hs-source-dirs:     test
 
   -- cabal-fmt: expand test -Spec -Doctests
-  other-modules:      NNU.App.TwitterBotSpec
+  other-modules:
+    NNU.App.TwitterBotSpec
+    TestUtil
+
   main-is:            Spec.hs
   build-tool-depends: hspec-discover:hspec-discover -any
 
@@ -140,7 +142,11 @@ test-suite spec
     , aeson
     , base         >=4.7      && <5
     , doctest
+    , twitter-conduit     ^>=0.5.0
+    , twitter-types
     , hspec
+    , generic-lens
+    , method
     , name-update
     , QuickCheck
     , rio          >=0.1.16.0

@@ -22,7 +22,7 @@ import           RIO.Time
 import           Data.Aeson                     ( FromJSON )
 import qualified Data.Aeson                    as J
 import qualified Data.ByteString.Char8         as BC
-import           Data.Generics.Labels           ( )
+import           Data.Generics.Product          ( the )
 import           Prelude                        ( read )
 import           System.Environment             ( getEnv )
 import           System.IO.Unsafe               ( unsafePerformIO )
@@ -33,11 +33,12 @@ import           Web.Twitter.Conduit           as X
                                                 )
 import           Web.Twitter.Conduit.Parameters
                                                as X
-                                         hiding ( map )
+import           Web.Twitter.Conduit.Status    as X
+                                                ( update )
 
 newtype TwitterApi m = TwitterApi
   { callApi :: forall apiName r _r
-             . FromJSON r
+             . (FromJSON r, Typeable r)
             => Twitter.APIRequest apiName _r
             -> m r
   }
@@ -49,16 +50,16 @@ newtype TwitterApiError = TwitterApiError J.Value
 instance Exception TwitterApiError
 
 call'
-  :: forall r env apiName _responseType
-   . (HasTwitterAPI env, FromJSON r)
-  => APIRequest apiName _responseType
+  :: forall r env apiName _r
+   . (HasTwitterAPI env, FromJSON r, Typeable r)
+  => APIRequest apiName _r
   -> RIO env r
 call' req = do
   TwitterApi { callApi } <- view twitterApiL
   callApi req
 call
   :: forall env r apiName
-   . (HasTwitterAPI env, FromJSON r)
+   . (HasTwitterAPI env, FromJSON r, Typeable r)
   => APIRequest apiName r
   -> RIO env r
 call = call'
@@ -101,10 +102,10 @@ class HasTwConfig env where
   twConfigL  :: Lens' env TwConfig
   twManagerL :: Lens' env Manager
   default twManagerL :: Lens' env Manager
-  twManagerL = twConfigL . #twManager
+  twManagerL = twConfigL . the @"twManager"
   twInfoL :: Lens' env TWInfo
   default twInfoL :: Lens' env TWInfo
-  twInfoL = twConfigL . #twInfo
+  twInfoL = twConfigL . the @"twInfo"
 instance HasTwConfig TwConfig where
   twConfigL = id
 
