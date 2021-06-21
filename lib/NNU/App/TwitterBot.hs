@@ -67,6 +67,7 @@ class HasAppConfig env where
 -- Local data types {{{
 -------------------------------------------------------------------------------
 
+-- liverName -> current twitter name
 type SimpleNameMap = Map Text Text
 
 data Env super = Env
@@ -245,7 +246,7 @@ oneLoop = do
       , oldName
       ]
     logMsg = J.object
-      [ "message" J..= ("screen name changed" :: Text)
+      [ "message" J..= ("twitter name changed" :: Text)
       , "member" J..= liverName
       , "before" J..= oldName
       , "after" J..= newName

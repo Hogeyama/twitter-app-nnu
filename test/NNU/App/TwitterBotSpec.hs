@@ -197,7 +197,7 @@ type ListsMembersResp = WithCursor Integer UsersCursorKey User
 
 spec :: Spec
 spec = do
-  describe "screen name change" $ do
+  describe "twitter name change" $ do
     env <- runIO $ mockEnv MockConfig
       { listsMembersResp = [ Right WithCursor
                              { nextCursor     = Nothing
@@ -225,7 +225,7 @@ spec = do
     it "is logged" $ do
       getLogRecord env
         `shouldReturn` [ J.object
-                           [ "message" J..= ("screen name changed" :: Text)
+                           [ "message" J..= ("twitter name changed" :: Text)
                            , "member" J..= ("Yamada Taro" :: Text)
                            , "before" J..= ("Yamada Mark-Ⅱ" :: Text)
                            , "after" J..= ("Yamada Mark-Ⅲ" :: Text)
