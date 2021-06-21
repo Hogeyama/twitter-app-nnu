@@ -1,3 +1,5 @@
+{-# LANGUAGE BlockArguments #-}
+
 module NNU.App.TwitterBot
   ( AppConfig(..)
   , HasAppConfig(..)
@@ -20,6 +22,9 @@ import           Lens.Micro.Platform           as L
                                                 )
 import           NNU.Handler.Twitter            ( HasTwitterAPI
                                                 , TwitterApi
+                                                , TwitterApiError
+                                                  ( TwitterApiError
+                                                  )
                                                 )
 import qualified NNU.Handler.Twitter           as TwitterApi
 import           NNU.Logger
@@ -156,8 +161,8 @@ oneLoop = do
     Just oldData -> do
       -- newDataが欠けている場合はoldを使う
       newData <- M.unionWith (\_o n -> n) oldData <$> fetchData listParam
-      writeData newData
-      filterUpdated oldData newData >>= mapM_ postTweet
+      posted  <- filterM postTweet =<< filterUpdated oldData newData
+      writeData $ oldData `patch` posted
  where
   readData :: RIO env (Maybe SimpleNameMap)
   readData = view (appConfigL . the @"store") >>= readIORef
@@ -189,33 +194,50 @@ oneLoop = do
               Just TwitterApi.User { userName } ->
                 return $ Just (liverName, userName)
 
-  filterUpdated
-    :: SimpleNameMap -> SimpleNameMap -> RIO env [(Member, Text, Text)]
+  filterUpdated :: SimpleNameMap -> SimpleNameMap -> RIO env [DiffMember]
   filterUpdated oldData newData = do
     Group { members } <- view (appConfigL . the @"group")
     let updates = do
-          m@Member {..} <- members
+          member@Member {..} <- members
           case (oldData, newData) & both %~ M.lookup liverName of
             (Just oldName, Just newName) | oldName /= newName ->
-              return (m, oldName, newName)
+              return DiffMember { .. }
             _ -> []
     return updates
 
-  postTweet :: (Member, Text, Text) -> RIO env ()
-  postTweet (m@Member {..}, oldName, newName)
-    | T.all isAscii newName || T.all isAscii oldName
-    = logE $ "possibly personal information: " <> liverName
-    | isTestMember m
-    = do
+  -- returns whether posted or not
+  postTweet :: DiffMember -> RIO env Bool
+  postTweet DiffMember {..}
+    | --(m@Member {..}, oldName, newName)
+      T.all isAscii newName || T.all isAscii oldName = do
+      logE $ "possibly personal information: " <> liverName
+      pure False
+    | isTestMember member = do
       time <- liftIO getZonedTime
       void $ TwitterApi.tweet $ "@tos test " <> utf8BuilderToText
         (displayShow time)
-    | otherwise
-    = do
-        logD logMsg
-        void $ TwitterApi.tweet msg
+      logI ("test user updated" :: Text)
+      pure True
+    | otherwise = do
+      resp <- tryAny $ TwitterApi.tweet msg
+      case resp of
+        Right _ -> do
+          logD logMsg
+          pure True
+        Left e -> do
+          logE $ J.object
+            [ "message" J..= ("tweet post failed" :: Text)
+            , "error" J..= e'
+            , "original" J..= logMsg
+            ]
+          -- ツイート重複エラーのときは状態を更新してよい
+          pure $ "Status is a duplicate." `T.isInfixOf` tshow e
+         where
+          e' | Just (TwitterApiError v) <- fromException e = v
+             | otherwise = J.toJSON (tshow e)
    where
-    msg = T.unlines
+    Member {..} = member
+    msg         = T.unlines
       [ liverName <> "(" <> url' <> ")" <> "さんが名前を変更しました"
       , ""
       , newName
@@ -229,6 +251,16 @@ oneLoop = do
       , "after" J..= newName
       ]
     url' = "twitter.com/" <> screenName
+
+  patch :: SimpleNameMap -> [DiffMember] -> SimpleNameMap
+  patch store p = M.unionWith (\_o n -> n) store
+    $ M.fromList [ (liverName member, newName) | DiffMember {..} <- p ]
+
+data DiffMember = DiffMember
+  { member  :: Member
+  , oldName :: Text
+  , newName :: Text
+  }
 
 -- }}}
 
