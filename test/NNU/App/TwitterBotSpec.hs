@@ -5,7 +5,11 @@ module NNU.App.TwitterBotSpec
   ) where
 
 import qualified Data.Aeson                    as J
+import           Data.Dynamic
 import           Data.Generics.Product          ( HasAny(the) )
+import           Data.Typeable                  ( typeOf
+                                                , typeRep
+                                                )
 import           NNU.App.TwitterBot             ( AppConfig(..)
                                                 , HasAppConfig(..)
                                                 , LoopConfig(..)
@@ -37,18 +41,6 @@ import qualified RIO.Partial                   as Partial
 import qualified RIO.Text                      as T
 import qualified RIO.Time                      as Time
 import           Test.Hspec
-import           Test.Method                    ( ArgsMatcher(args)
-                                                , Dynamic
-                                                , FromDyn(fromDyn)
-                                                , ToDyn(toDyn)
-                                                , anything
-                                                , mockup
-                                                , thenAction
-                                                , thenMethod
-                                                , thenReturn
-                                                , when
-                                                )
-import           Test.Method.Mock               ( Mock )
 import           Web.Twitter.Conduit.Request.Internal
                                                 ( rawParam )
 
@@ -84,19 +76,32 @@ mockEnv MockConfig {..} = do
   appConfig            <- mockAppConfig
   mockListsMembers     <- mockSimpleAction "listsMembers" listsMembersResp
   mockTweet            <- mockSimpleAction "tweet" tweetResp
-  let twitterApi = mockTwitterApi $ do
-        when (args isListsMemberQuery) `thenAction` do
-          toDyn <$> mockListsMembers
-        when (args isTweetQuery) `thenMethod` \(SomeAPIRequest r) -> do
-          tryAny mockTweet >>= \case
-            Right tweet -> do
-              modifyIORef' tweetRecord
-                           (Partial.fromJust (r ^. rawParam "status") :)
-              pure $ toDyn tweet
-            Left e -> throwIO e
-        -- for better error message
-        when (args anything) `thenReturn` toDyn ()
+  let twitterApi = TwitterApi $ \case
+        r
+          | isListsMemberQuery r -> do
+            unsafeCoerceM' =<< mockListsMembers
+          | isTweetQuery r -> do
+            tryAny mockTweet >>= \case
+              Right tweet -> do
+                modifyIORef' tweetRecord
+                             (Partial.fromJust (r ^. rawParam "status") :)
+                unsafeCoerceM' tweet
+              Left e -> throwIO e
+          | otherwise -> do
+            throwString $ "mockTwitterApi: Unexpected request: " <> show r
   pure MockEnv { .. }
+ where
+  unsafeCoerceM'
+    :: forall x y n . (Typeable x, Typeable y, MonadIO n) => x -> n y
+  unsafeCoerceM' x = case fromDynamic (toDyn x) of
+    Just y -> pure y
+    Nothing ->
+      throwIO
+        $  stringException
+        $  "unsafeCoerce': fail to  coerce "
+        <> show (typeOf x)
+        <> " to "
+        <> show (typeRep (Proxy @y))
 
 -- Mock Operation
 -----------------
@@ -129,14 +134,6 @@ mockAppConfig = do
   store <- newIORef Nothing
   pure AppConfig { group = mockGroup, store }
 
-mockTwitterApi
-  :: Mock (SomeAPIRequest -> RIO MockEnv Dynamic) -> TwitterApi (RIO MockEnv)
-mockTwitterApi mock = TwitterApi $ fromDyn' . mockup mock . SomeAPIRequest
-  where fromDyn' x = evaluate . fromDyn =<< x
-
-data SomeAPIRequest where
-  SomeAPIRequest ::TwitterApi.APIRequest apiName r -> SomeAPIRequest
-
 mockSimpleAction
   :: (MonadIO m, MonadIO n) => String -> [Either SomeException a] -> m (n a)
 mockSimpleAction name xs = do
@@ -153,12 +150,11 @@ mockSimpleAction name xs = do
       writeIORef ref ys
       either throwIO pure y
 
-isListsMemberQuery :: SomeAPIRequest -> Bool
-isListsMemberQuery (SomeAPIRequest q) =
-  _url q == _url (TwitterApi.listsMembers mockListParam)
+isListsMemberQuery :: APIRequest name r -> Bool
+isListsMemberQuery q = _url q == _url (TwitterApi.listsMembers mockListParam)
 
-isTweetQuery :: SomeAPIRequest -> Bool
-isTweetQuery (SomeAPIRequest q) = _url q == _url (TwitterApi.update "")
+isTweetQuery :: APIRequest name r -> Bool
+isTweetQuery q = _url q == _url (TwitterApi.update "")
 
 -- Mock Data
 ----------------
