@@ -1,9 +1,16 @@
 cabal-version: 2.4
 name:          name-update
-version:       0.2.1.1
+version:       0.2.2.0
 license:       BSD-3-Clause
 license-file:  LICENSE
-build-type:    Simple
+build-type:    Custom
+
+custom-setup
+  setup-depends:
+    , base
+    , Cabal
+    , cabal-doctest
+    , hspec
 
 common common-options
   ghc-options:
@@ -70,7 +77,6 @@ library
     NNU.Logger
     NNU.Nijisanji
     NNU.TH
-    NNU.Util
 
   build-depends:
     , aeson
@@ -94,7 +100,7 @@ library
     , template-haskell
     , text
     , time
-    , twitter-conduit     ^>=0.4.0
+    , twitter-conduit     ^>=0.5.0
 
   other-modules:    Paths_name_update
   hs-source-dirs:   lib
@@ -112,6 +118,57 @@ executable name-update-2434
     , name-update
     , read-env-var
     , rio           >=0.1.16.0
+
+test-suite spec
+  import:             common-options
+  type:               exitcode-stdio-1.0
+  hs-source-dirs:     test
+
+  -- cabal-fmt: expand test -Spec -Doctests
+  other-modules:
+    NNU.App.TwitterBotSpec
+    TestUtil
+
+  main-is:            Spec.hs
+  build-tool-depends: hspec-discover:hspec-discover -any
+
+  if impl(ghc >=8.4)
+    ghc-options: -Wno-missing-export-lists
+
+  if impl(ghc >=8.8)
+    ghc-options: -Wno-missing-deriving-strategies
+
+  build-depends:
+    , aeson
+    , base         >=4.7      && <5
+    , doctest
+    , twitter-conduit     ^>=0.5.0
+    , twitter-types
+    , hspec
+    , generic-lens
+    , method
+    , name-update
+    , QuickCheck
+    , rio          >=0.1.16.0
+
+test-suite doctests
+  import:         common-options
+  type:           exitcode-stdio-1.0
+  main-is:        Doctests.hs
+  hs-source-dirs: test
+  ghc-options:    -Wno-missing-import-lists
+  build-depends:
+    , aeson
+    , base         >=4.7      && <5
+    , doctest
+    , name-update
+    , rio          >=0.1.16.0
+
+  if impl(ghc >=8.4)
+    ghc-options: -Wno-missing-export-lists
+
+  if impl(ghc >=8.8)
+    ghc-options: -Wno-missing-deriving-strategies
 
 -- executable test
 --   import:           common-options

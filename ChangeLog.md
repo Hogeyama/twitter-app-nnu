@@ -1,6 +1,11 @@
 
 # 0.2.1.1
 
++ Fix bugs
++ Add test
+
+# 0.2.1.1
+
 * Change log level
 
 # 0.2.1.0

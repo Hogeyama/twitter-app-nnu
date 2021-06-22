@@ -3,6 +3,7 @@
 
 module NNU.Logger
   ( LogFunc'
+  , LogItem
   , HasLogFunc'
   , defaultLogFunc'
   , mkLogFunc'
@@ -14,7 +15,7 @@ module NNU.Logger
 
 import qualified Data.Aeson                    as J
 import qualified NNU.TH                        as TH
-import qualified NNU.Util                      as Util
+import           Network.HTTP.Simple           as HTTP
 import           RIO
 import qualified RIO.Text                      as T
 
@@ -25,8 +26,19 @@ data LogItem = LogItem LogLevel J.Value
 defaultLogFunc' :: LogFunc'
 defaultLogFunc' = mkLogFunc' $ \level msg -> do
   let msg' = decodeUtf8Lenient $ toStrictBytes $ J.encode msg
-  when (level >= LevelInfo) $ Util.notifyHogeyamaSlack msg'
+  when (level >= LevelInfo) $ notifySlack msg'
   hPutBuilder stderr $ encodeUtf8Builder msg' <> "\n"
+ where
+  notifySlack msg = do
+    let
+      url
+        = "https://hooks.slack.com/services/***REMOVED***"
+      body = J.object ["text" J..= msg]
+    req <-
+      HTTP.parseRequest url
+      <&> HTTP.setRequestMethod "POST"
+      <&> setRequestBodyJSON body
+    void $ httpNoBody req
 
 mkLogFunc' :: (LogLevel -> J.Value -> IO ()) -> LogFunc'
 mkLogFunc' p = mkGLogFunc $ \stack (LogItem level msg) -> do
@@ -42,8 +54,7 @@ mkLogFunc' p = mkGLogFunc $ \stack (LogItem level msg) -> do
     , "body" J..= msg
     , "revision" J..= ($(TH.revision) :: Text)
     ]
-  where
-    replaceColon = T.map (\c -> if c == ':' then '-' else c)
+  where replaceColon = T.map (\c -> if c == ':' then '-' else c)
     -- Slackだと:5:がemojiになってしまうため
 
 log'
