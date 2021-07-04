@@ -29,7 +29,7 @@ import           System.IO.Unsafe               ( unsafePerformIO )
 
 data Member = Member
   { exGroup    :: GroupName
-  , liverName  :: Text
+  , memberName :: Text
   , screenName :: Text
   , userId     :: Natural
   }

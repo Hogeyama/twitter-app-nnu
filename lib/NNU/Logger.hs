@@ -1,31 +1,34 @@
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module NNU.Logger
-  ( LogFunc'
+  ( Has
+  , error
+  , warn
+  , info
+  , debug
+  , LogFunc'
   , LogItem
-  , HasLogFunc'
   , defaultLogFunc'
   , mkLogFunc'
-  , logE
-  , logW
-  , logI
-  , logD
   ) where
 
-import qualified Data.Aeson                    as J
+import qualified Data.Aeson                    as A
 import qualified NNU.TH                        as TH
 import           Network.HTTP.Simple           as HTTP
-import           RIO
+import           RIO                     hiding ( error )
 import qualified RIO.Text                      as T
 
 type LogFunc' = GLogFunc LogItem
-type HasLogFunc' env = (HasGLogFunc env, GMsg env ~ LogItem)
-data LogItem = LogItem LogLevel J.Value
+data LogItem = LogItem LogLevel A.Value
+
+class (HasGLogFunc env, GMsg env ~ LogItem) => Has env
+instance (HasGLogFunc env, GMsg env ~ LogItem) => Has env where
 
 defaultLogFunc' :: LogFunc'
 defaultLogFunc' = mkLogFunc' $ \level msg -> do
-  let msg' = decodeUtf8Lenient $ toStrictBytes $ J.encode msg
+  let msg' = decodeUtf8Lenient $ toStrictBytes $ A.encode msg
   when (level >= LevelInfo) $ notifySlack msg'
   hPutBuilder stderr $ encodeUtf8Builder msg' <> "\n"
  where
@@ -33,14 +36,14 @@ defaultLogFunc' = mkLogFunc' $ \level msg -> do
     let
       url
         = "https://hooks.slack.com/services/***REMOVED***"
-      body = J.object ["text" J..= msg]
+      body = A.object ["text" A..= msg]
     req <-
       HTTP.parseRequest url
       <&> HTTP.setRequestMethod "POST"
       <&> setRequestBodyJSON body
     void $ httpNoBody req
 
-mkLogFunc' :: (LogLevel -> J.Value -> IO ()) -> LogFunc'
+mkLogFunc' :: (LogLevel -> A.Value -> IO ()) -> LogFunc'
 mkLogFunc' p = mkGLogFunc $ \stack (LogItem level msg) -> do
   let level' = case level of
         LevelDebug     -> "debug"
@@ -48,48 +51,48 @@ mkLogFunc' p = mkGLogFunc $ \stack (LogItem level msg) -> do
         LevelWarn      -> "warning"
         LevelError     -> "error"
         LevelOther txt -> txt
-  p level $ J.object
-    [ "location" J..= replaceColon (utf8BuilderToText (displayCallStack stack))
-    , "log_level" J..= level'
-    , "body" J..= msg
-    , "revision" J..= ($(TH.revision) :: Text)
+  p level $ A.object
+    [ "location" A..= replaceColon (utf8BuilderToText (displayCallStack stack))
+    , "log_level" A..= level'
+    , "body" A..= msg
+    , "revision" A..= ($(TH.revision) :: Text)
     ]
   where replaceColon = T.map (\c -> if c == ':' then '-' else c)
     -- Slackだと:5:がemojiになってしまうため
 
 log'
-  :: forall l env
-   . (HasCallStack, HasLogFunc' env, J.ToJSON l)
+  :: forall l env m
+   . (HasCallStack, Has env, MonadReader env m, MonadIO m, A.ToJSON l)
   => LogLevel
   -> l
-  -> RIO env ()
-log' level = glog . LogItem level . J.toJSON
+  -> m ()
+log' level = glog . LogItem level . A.toJSON
 
-logE
-  :: forall l env
-   . (HasCallStack, HasLogFunc' env, J.ToJSON l)
+error
+  :: forall l env m
+   . (HasCallStack, Has env, MonadReader env m, MonadIO m, A.ToJSON l)
   => l
-  -> RIO env ()
-logE = log' LevelError
+  -> m ()
+error = log' LevelError
 
-logW
-  :: forall l env
-   . (HasCallStack, HasLogFunc' env, J.ToJSON l)
+warn
+  :: forall l env m
+   . (HasCallStack, Has env, MonadReader env m, MonadIO m, A.ToJSON l)
   => l
-  -> RIO env ()
-logW = log' LevelWarn
+  -> m ()
+warn = log' LevelWarn
 
-logI
-  :: forall l env
-   . (HasCallStack, HasLogFunc' env, J.ToJSON l)
+info
+  :: forall l env m
+   . (HasCallStack, Has env, MonadReader env m, MonadIO m, A.ToJSON l)
   => l
-  -> RIO env ()
-logI = log' LevelInfo
+  -> m ()
+info = log' LevelInfo
 
-logD
-  :: forall l env
-   . (HasCallStack, HasLogFunc' env, J.ToJSON l)
+debug
+  :: forall l env m
+   . (HasCallStack, Has env, MonadReader env m, MonadIO m, A.ToJSON l)
   => l
-  -> RIO env ()
-logD = log' LevelDebug
+  -> m ()
+debug = log' LevelDebug
 

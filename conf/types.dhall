@@ -7,7 +7,7 @@
       >
 in let Member =
       { exGroup : GroupLabel
-      , liverName : Text
+      , memberName : Text
       , screenName : Text
       , userId : Natural
       }
@@ -23,7 +23,7 @@ in { Nijisanji = GroupLabel.Nijisanji
    , MkMember =
       λ(group: GroupLabel)→λ(name: Text)→λ(screenName: Text)→λ(userId: Natural)→
         { exGroup = group
-        , liverName = name
+        , memberName = name
         , screenName = screenName
         , userId = userId
         }

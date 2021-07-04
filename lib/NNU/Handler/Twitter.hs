@@ -1,11 +1,11 @@
 {-# LANGUAGE UndecidableInstances #-}
 module NNU.Handler.Twitter
-  ( TwitterApi(..)
-  , HasTwitterAPI(..)
-  , TwitterApiError(..)
+  ( Handler(..)
+  , Has(..)
+  , ApiError(..)
   , call
   , call'
-  , defaultImpl
+  , defaultHandler
   , TwConfig(..)
   , HasTwConfig(..)
   , Tweet(..)
@@ -15,7 +15,7 @@ module NNU.Handler.Twitter
   , module X
   ) where
 
-import           RIO
+import           RIO                     hiding ( Handler )
 import qualified RIO.Text                      as T
 import           RIO.Time
 
@@ -36,36 +36,36 @@ import           Web.Twitter.Conduit.Parameters
 import           Web.Twitter.Conduit.Status    as X
                                                 ( update )
 
-newtype TwitterApi m = TwitterApi
+newtype Handler m = Handler
   { callApi :: forall apiName r _r
              . (FromJSON r, Typeable r)
             => Twitter.APIRequest apiName _r
             -> m r
   }
-class HasTwitterAPI env where
-  twitterApiL :: Lens' env (TwitterApi (RIO env))
+class Has env where
+  twitterApiL :: Lens' env (Handler (RIO env))
 
-newtype TwitterApiError = TwitterApiError J.Value
+newtype ApiError = ApiError J.Value
   deriving stock (Show)
-instance Exception TwitterApiError
+instance Exception ApiError
 
 call'
   :: forall r env apiName _r
-   . (HasTwitterAPI env, FromJSON r, Typeable r)
+   . (Has env, FromJSON r, Typeable r)
   => APIRequest apiName _r
   -> RIO env r
 call' req = do
-  TwitterApi { callApi } <- view twitterApiL
+  Handler { callApi } <- view twitterApiL
   callApi req
 call
   :: forall env r apiName
-   . (HasTwitterAPI env, FromJSON r, Typeable r)
+   . (Has env, FromJSON r, Typeable r)
   => APIRequest apiName r
   -> RIO env r
 call = call'
 
-defaultImpl :: forall m . (MonadIO m) => TwConfig -> TwitterApi m
-defaultImpl TwConfig {..} = TwitterApi { callApi }
+defaultHandler :: forall m . (MonadIO m) => TwConfig -> Handler m
+defaultHandler TwConfig {..} = Handler { callApi }
  where
   callApi
     :: forall apiName r _responseType
@@ -84,14 +84,14 @@ defaultImpl TwConfig {..} = TwitterApi { callApi }
                 , "response" J..= resp
                 , "error" J..= e
                 ]
-          throwIO $ TwitterApiError msg
+          throwIO $ ApiError msg
       Left e -> do
         let msg = J.object
               [ "message" J..= ("Twitter API call error" :: Text)
               , "request" J..= show param
               , "error" J..= show e
               ]
-        throwIO $ TwitterApiError msg
+        throwIO $ ApiError msg
 
 data TwConfig = TwConfig
   { twManager :: Manager
@@ -142,17 +142,22 @@ credentialFromEnv prefix = do
     [("oauth_token", BC.pack token), ("oauth_token_secret", BC.pack secret)]
 
 data Tweet = Tweet
-  { tweetId   :: Integer
-  , createdAt :: UTCTime
+  { tweetId   :: Natural
+  , createdAt :: ZonedTime
   }
-  deriving stock (Show, Eq, Generic)
+  deriving stock (Show, Generic)
 instance FromJSON Tweet where
   parseJSON = J.withObject "Tweet" $ \o -> do
     pure Tweet
       <*> (read <$> o J..: "id_str")
-      <*> (o J..: "created_at" >>= return . fromTwitterTime)
+      <*> (pure . utcToZonedTime jst . fromTwitterTime =<< o J..: "created_at")
+   where
+    jst = TimeZone { timeZoneMinutes    = 9 * 60
+                   , timeZoneSummerOnly = False
+                   , timeZoneName       = "JST"
+                   }
 
-tweet :: (HasTwitterAPI env) => T.Text -> RIO env Tweet
+tweet :: (Has env) => T.Text -> RIO env Tweet
 tweet = call' . update
 
 data User = User
@@ -161,7 +166,7 @@ data User = User
   }
   deriving stock (Show, Eq, Generic)
 instance FromJSON User where
-  parseJSON = J.withObject "MyUser" $ \o -> do
+  parseJSON = J.withObject "User" $ \o -> do
     pure User <*> (read <$> o J..: "id_str") <*> o J..: "name"
 
 newtype TwitterTime = TwitterTime { fromTwitterTime :: UTCTime }

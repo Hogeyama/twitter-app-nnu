@@ -5,26 +5,22 @@ module NNU.App.TwitterBotSpec
   ) where
 
 import qualified Data.Aeson                    as J
-import           Data.Dynamic
+import           Data.Dynamic                   ( fromDynamic
+                                                , toDyn
+                                                )
 import           Data.Generics.Product          ( HasAny(the) )
 import           Data.Typeable                  ( typeOf
                                                 , typeRep
                                                 )
 import           NNU.App.TwitterBot             ( AppConfig(..)
                                                 , HasAppConfig(..)
+                                                , AppState(..)
+                                                , HasAppState(..)
                                                 , LoopConfig(..)
                                                 , mainLoop
                                                 )
-import           NNU.Handler.Twitter            ( APIRequest(_url)
-                                                , HasTwitterAPI(..)
-                                                , ListParam
-                                                , Tweet(Tweet)
-                                                , TwitterApi(TwitterApi)
-                                                , User(User)
-                                                , UsersCursorKey
-                                                , WithCursor(..)
-                                                )
 import qualified NNU.Handler.Twitter           as TwitterApi
+import qualified NNU.Handler.Twitter           as Twitter
 import           NNU.Logger                     ( LogFunc'
                                                 , LogItem
                                                 , mkLogFunc'
@@ -36,10 +32,15 @@ import           NNU.Nijisanji                  ( Group(..)
 import           RIO                     hiding ( when )
 import qualified RIO.HashMap                   as HM
 import qualified RIO.Map                       as M
-import           RIO.Partial                    ( toEnum )
 import qualified RIO.Partial                   as Partial
+import           RIO.Partial                    ( toEnum )
 import qualified RIO.Text                      as T
 import qualified RIO.Time                      as Time
+import           RIO.Time                       ( TimeZone(TimeZone)
+                                                , UTCTime(UTCTime)
+                                                , ZonedTime
+                                                , utcToZonedTime
+                                                )
 import           Test.Hspec
 import           Web.Twitter.Conduit.Request.Internal
                                                 ( rawParam )
@@ -50,8 +51,9 @@ import           Web.Twitter.Conduit.Request.Internal
 
 data MockEnv = MockEnv
   { appConfig   :: AppConfig
+  , appState    :: AppState
   , logFunc     :: LogFunc'
-  , twitterApi  :: TwitterApi (RIO MockEnv)
+  , twitter     :: Twitter.Handler (RIO MockEnv)
   , logRecord   :: IORef [J.Value]
   , tweetRecord :: IORef [Text]
   }
@@ -61,12 +63,14 @@ instance HasGLogFunc MockEnv where
   gLogFuncL = the @"logFunc"
 instance HasAppConfig MockEnv where
   appConfigL = the @"appConfig"
-instance HasTwitterAPI MockEnv where
-  twitterApiL = the @"twitterApi"
+instance HasAppState MockEnv where
+  appStateL = the @"appState"
+instance Twitter.Has MockEnv where
+  twitterApiL = the @"twitter"
 
 data MockConfig = MockConfig
   { listsMembersResp :: [Either SomeException ListsMembersResp]
-  , tweetResp        :: [Either SomeException Tweet]
+  , tweetResp        :: [Either SomeException Twitter.Tweet]
   }
 
 mockEnv :: forall m . MonadIO m => MockConfig -> m MockEnv
@@ -74,9 +78,10 @@ mockEnv MockConfig {..} = do
   tweetRecord          <- newIORef ([] :: [Text])
   (logFunc, logRecord) <- mockLogFunc
   appConfig            <- mockAppConfig
+  appState             <- mockAppState
   mockListsMembers     <- mockSimpleAction "listsMembers" listsMembersResp
   mockTweet            <- mockSimpleAction "tweet" tweetResp
-  let twitterApi = TwitterApi $ \case
+  let twitter = Twitter.Handler $ \case
         r
           | isListsMemberQuery r -> do
             unsafeCoerceM' =<< mockListsMembers
@@ -88,7 +93,7 @@ mockEnv MockConfig {..} = do
                 unsafeCoerceM' tweet
               Left e -> throwIO e
           | otherwise -> do
-            throwString $ "mockTwitterApi: Unexpected request: " <> show r
+            throwString $ "mockTwitter: Unexpected request: " <> show r
   pure MockEnv { .. }
  where
   unsafeCoerceM'
@@ -113,7 +118,7 @@ getTweetRecord :: MonadIO m => MockEnv -> m [Text]
 getTweetRecord MockEnv {..} = reverse <$> readIORef tweetRecord
 
 getCurrentState :: MonadIO m => MockEnv -> m (Maybe (Map Text Text))
-getCurrentState MockEnv {..} = readIORef $ appConfig ^. the @"store"
+getCurrentState MockEnv {..} = readIORef $ appState ^. the @"store"
 
 -- Mock Internal
 ----------------
@@ -130,9 +135,12 @@ mockLogFunc = do
   return (logFunc, ref)
 
 mockAppConfig :: MonadIO m => m AppConfig
-mockAppConfig = do
+mockAppConfig = pure AppConfig { group = mockGroup }
+
+mockAppState :: MonadIO m => m AppState
+mockAppState = do
   store <- newIORef Nothing
-  pure AppConfig { group = mockGroup, store }
+  pure AppState {..}
 
 mockSimpleAction
   :: (MonadIO m, MonadIO n) => String -> [Either SomeException a] -> m (n a)
@@ -150,11 +158,12 @@ mockSimpleAction name xs = do
       writeIORef ref ys
       either throwIO pure y
 
-isListsMemberQuery :: APIRequest name r -> Bool
-isListsMemberQuery q = _url q == _url (TwitterApi.listsMembers mockListParam)
+isListsMemberQuery :: Twitter.APIRequest name r -> Bool
+isListsMemberQuery q =
+  Twitter._url q == Twitter._url (Twitter.listsMembers mockListParam)
 
-isTweetQuery :: APIRequest name r -> Bool
-isTweetQuery q = _url q == _url (TwitterApi.update "")
+isTweetQuery :: Twitter.APIRequest name r -> Bool
+isTweetQuery q = Twitter._url q == Twitter._url (Twitter.update "")
 
 -- Mock Data
 ----------------
@@ -174,35 +183,36 @@ mockMember1 = Member mockGroupName "Yamada Taro" "t_yamada" 1
 mockMember2 :: Member
 mockMember2 = Member mockGroupName "Tanaka Hanako" "h_tanaka" 2
 
-mkTwitterUser1 :: Text -> User
-mkTwitterUser1 = User 1
+mkTwitterUser1 :: Text -> Twitter.User
+mkTwitterUser1 = Twitter.User 1
 
-mkTwitterUser2 :: Text -> User
-mkTwitterUser2 = User 2
+mkTwitterUser2 :: Text -> Twitter.User
+mkTwitterUser2 = Twitter.User 2
 
 mockListId :: Natural
 mockListId = 0
 
-mockListParam :: ListParam
-mockListParam = TwitterApi.ListIdParam $ fromIntegral mockListId
+mockListParam :: Twitter.ListParam
+mockListParam = Twitter.ListIdParam $ fromIntegral mockListId
 
 -------------------------------------------------------------------------------
 -- Spec
 
-type ListsMembersResp = WithCursor Integer UsersCursorKey User
+type ListsMembersResp
+  = Twitter.WithCursor Integer Twitter.UsersCursorKey Twitter.User
 
 spec :: Spec
 spec = do
   describe "twitter name change" $ do
     env <- runIO $ mockEnv MockConfig
-      { listsMembersResp = [ Right WithCursor
+      { listsMembersResp = [ Right Twitter.WithCursor
                              { nextCursor     = Nothing
                              , previousCursor = Nothing
                              , contents       = [ mkTwitterUser1 "Yamada Mark-Ⅱ"
                                                 , mkTwitterUser2 "Tanaka Hanako"
                                                 ]
                              }
-                           , Right WithCursor
+                           , Right Twitter.WithCursor
                              { nextCursor     = Nothing
                              , previousCursor = Nothing
                              , contents       = [ mkTwitterUser1 "Yamada Mark-Ⅲ"
@@ -210,10 +220,7 @@ spec = do
                                                 ]
                              }
                            ]
-      , tweetResp        = [ Right Tweet { tweetId   = 0
-                                         , createdAt = Time.UTCTime (toEnum 0) 0
-                                         }
-                           ]
+      , tweetResp = [Right Twitter.Tweet { tweetId = 0, createdAt = testTime }]
       }
     runIO $ runRIO env $ mainLoop LoopConfig { loopCount    = Just 2
                                              , loopDelaySec = 0
@@ -244,7 +251,7 @@ spec = do
         )
   describe "user not in list" $ do
     env <- runIO $ mockEnv MockConfig
-      { listsMembersResp = [ Right WithCursor
+      { listsMembersResp = [ Right Twitter.WithCursor
                                { nextCursor = Nothing
                                , previousCursor = Nothing
                                , contents = [mkTwitterUser1 "Yamada Mark-Ⅱ"]
@@ -281,14 +288,14 @@ spec = do
       getTweetRecord env `shouldReturn` []
   describe "error in first tweet post" $ do
     env <- runIO $ mockEnv MockConfig
-      { listsMembersResp = [ Right WithCursor
+      { listsMembersResp = [ Right Twitter.WithCursor
                              { nextCursor     = Nothing
                              , previousCursor = Nothing
                              , contents       = [ mkTwitterUser1 "Yamada Mark-Ⅱ"
                                                 , mkTwitterUser2 "Tanaka Mark-Ⅱ"
                                                 ]
                              }
-                           , Right WithCursor
+                           , Right Twitter.WithCursor
                              { nextCursor     = Nothing
                              , previousCursor = Nothing
                              , contents       = [ mkTwitterUser1 "Yamada Mark-Ⅲ"
@@ -297,9 +304,7 @@ spec = do
                              }
                            ]
       , tweetResp = [ Left $ SomeException $ stringException "Twitter Down"
-                    , Right Tweet { tweetId   = 0
-                                  , createdAt = Time.UTCTime (toEnum 0) 0
-                                  }
+                    , Right Twitter.Tweet { tweetId = 0, createdAt = testTime }
                     ]
       }
     runIO $ runRIO env $ mainLoop LoopConfig { loopCount    = Just 2
@@ -324,21 +329,21 @@ spec = do
                        ]
   describe "error in first tweet post" $ do
     env <- runIO $ mockEnv MockConfig
-      { listsMembersResp = [ Right WithCursor
+      { listsMembersResp = [ Right Twitter.WithCursor
                              { nextCursor     = Nothing
                              , previousCursor = Nothing
                              , contents       = [ mkTwitterUser1 "Yamada Mark-Ⅱ"
                                                 , mkTwitterUser2 "Tanaka"
                                                 ]
                              }
-                           , Right WithCursor
+                           , Right Twitter.WithCursor
                              { nextCursor     = Nothing
                              , previousCursor = Nothing
                              , contents       = [ mkTwitterUser1 "Yamada Mark-Ⅲ"
                                                 , mkTwitterUser2 "Tanaka"
                                                 ]
                              }
-                           , Right WithCursor
+                           , Right Twitter.WithCursor
                              { nextCursor     = Nothing
                              , previousCursor = Nothing
                              , contents       = [ mkTwitterUser1 "Yamada Mark-Ⅲ"
@@ -347,9 +352,7 @@ spec = do
                              }
                            ]
       , tweetResp = [ Left $ SomeException $ stringException "Twitter Down"
-                    , Right Tweet { tweetId   = 0
-                                  , createdAt = Time.UTCTime (toEnum 0) 0
-                                  }
+                    , Right Twitter.Tweet { tweetId = 0, createdAt = testTime }
                     ]
       }
     runIO $ runRIO env $ mainLoop LoopConfig { loopCount    = Just 3
@@ -365,4 +368,15 @@ spec = do
                            , "Yamada Mark-Ⅱ"
                            ]
                        ]
+
+
+-------------------------------------------------------------------------------
+
+testTime :: ZonedTime
+testTime = utcToZonedTime jst $ UTCTime (toEnum 0) 0
+ where
+  jst = TimeZone { timeZoneMinutes    = 9 * 60
+                 , timeZoneSummerOnly = False
+                 , timeZoneName       = "JST"
+                 }
 
