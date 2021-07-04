@@ -2,4 +2,7 @@ dist-newstyle/
 .stack-work/
 .key
 .hie/
+.env
+env.*
 TODO
+local/
