@@ -10,14 +10,13 @@ ELMJS=public/elm.js
 run: build
 	cabal v2-run
 
-# Build this package.
-build: haskell elm
-
-haskell:
+build:
 	cabal v2-build
 
-elm:
-	elm make src/elm/Main.elm --output $(ELMJS)
+spec:
+	make start-local-dynamodb
+	-cabal run spec
+	# make clean-local-aws-env
 
 clean:
 	cabal clean
@@ -40,84 +39,53 @@ docker-run:
 	docker run --interactive --tty --rm --network host name-update-2434
 
 ################################################################################
-# heroku
+# Local AWS
 ################################################################################
 
-# Push the current version of the app to heroku.
-heroku-release:
-	heroku container:push web
-	heroku container:release web
 
-heroku-restart:
-	heroku ps:restart
+# exported for docker-compose
+export DOCKER_NETWORK_NAME := nnu_aws-local
 
-heroku-logs:
-	heroku logs
+# should equals to ./aws/local/sqs/custom.conf#rest-sqs.bind-port
+export LOCAL_SQS_PORT         := 9324
+export LOCAL_DYNAMODB_PORT    := 8000
+export LOCAL_API_GATEWAY_PORT := 3000
 
-heroku-psql:
-	psql $(shell heroku config:get DATABASE_URL)
+# clean
+#######
 
-################################################################################
-# アレ
-################################################################################
+clean-local-aws-env: remove-docker-network
+	cd ./aws/local && docker-compose down
 
-update: build docker-build heroku-release
+# network
+#########
 
-heroku-ping:
-	curl --request GET \
-    --header 'Content-Type: application/json' \
-    'https://name-update-2434.herokuapp.com/ping'
+create-docker-network:
+	@if docker network ls | grep ${DOCKER_NETWORK_NAME} > /dev/null; then \
+	echo 'network ${DOCKER_NETWORK_NAME} already exists'; \
+	else \
+	echo '[creating network ${DOCKER_NETWORK_NAME}]'; \
+	docker network create nnu_aws-local; \
+	fi
 
-heroku-get:
-	curl --request GET \
-    --header 'Content-Type: application/json' \
-    'https://name-update-2434.herokuapp.com/nijisanji' \
-    | jq .
-	curl --request GET \
-    --header 'Content-Type: application/json' \
-    'https://name-update-2434.herokuapp.com/SEEDs' \
-    | jq .
-	curl --request GET \
-    --header 'Content-Type: application/json' \
-    'https://name-update-2434.herokuapp.com/Gamers' \
-    | jq .
-	curl --request GET \
-    --header 'Content-Type: application/json' \
-    'https://name-update-2434.herokuapp.com/Since2019' \
-    | jq .
+remove-docker-network: stop-local-dynamodb stop-local-sqs
+	@if docker network ls | grep ${DOCKER_NETWORK_NAME} > /dev/null; then \
+	echo '[deleting network]'; \
+	docker network rm nnu_aws-local; \
+	else \
+	echo "network ${DOCKER_NETWORK_NAME} does not exists"; \
+	fi
 
-local-get:
-	curl --request GET \
-    --header 'Content-Type: application/json' \
-	'localhost:3000/nijisanji' \
-    | jq .
-	curl --request GET \
-    --header 'Content-Type: application/json' \
-	'localhost:3000/SEEDs' \
-    | jq .
-	curl --request GET \
-    --header 'Content-Type: application/json' \
-	'localhost:3000/Gamers' \
-    | jq .
-	curl --request GET \
-    --header 'Content-Type: application/json' \
-	'localhost:3000/Since2019' \
-    | jq .
+# DynamoDB
+##########
 
-docker-dep: DOCKER_BUILDKIT=1
-docker-dep:
-	docker build \
-		--cache-from public.ecr.aws/q3v2w3q5/hogeyama/nnu:dependency \
-		--build-arg BUILDKIT_INLINE_CACHE=1 \
-		--tag hogeyama/nnu:dependency \
-		--target dependency \
-		.
+start-local-dynamodb: create-docker-network
+	@if cd ./aws/local && docker-compose top | grep -i dynamodb > /dev/null; then \
+	echo "dynamodb-local is up-to-date"; \
+	else \
+	docker-compose up -d dynamodb; \
+	./dynamodb/initialize.bash > /dev/null; \
+	fi
 
-docker-build: DOCKER_BUILDKIT=1
-docker-build:
-	docker build \
-		--cache-from hogeyama/nnu:dependency \
-		--build-arg BUILDKIT_INLINE_CACHE=1 \
-		--tag hogeyama/nnu:latest \
-		.
-
+stop-local-dynamodb:
+	cd ./aws/local && docker-compose stop dynamodb

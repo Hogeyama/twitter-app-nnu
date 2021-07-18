@@ -33,7 +33,7 @@ data Member = Member
   , screenName :: Text
   , userId     :: Natural
   }
-  deriving stock (Show, Generic)
+  deriving stock (Show, Eq, Ord, Generic)
 instance NFData Member
 instance Dhall.FromDhall Member
 

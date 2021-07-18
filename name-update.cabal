@@ -73,6 +73,7 @@ library
   -- cabal-fmt: expand ./lib
   exposed-modules:
     NNU.App.TwitterBot
+    NNU.Handler.Db
     NNU.Handler.Twitter
     NNU.Logger
     NNU.Nijisanji
@@ -86,6 +87,7 @@ library
     , bytestring
     , containers
     , dhall               >=1.24.0
+    , errors
     , generic-lens
     , hierarchical-env
     , http-conduit
@@ -144,10 +146,13 @@ test-suite spec
     , doctest
     , generic-lens
     , hspec
+    , hspec-core
     , method
     , name-update
     , QuickCheck
     , rio              >=0.1.16.0
+    , rio-orphans
+    , safe-exceptions
     , twitter-conduit  ^>=0.5.0
     , twitter-types
 
