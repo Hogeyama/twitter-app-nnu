@@ -29,7 +29,7 @@ instance (HasGLogFunc env, GMsg env ~ LogItem) => Has env where
 defaultLogFunc' :: LogFunc'
 defaultLogFunc' = mkLogFunc' $ \level msg -> do
   let msg' = decodeUtf8Lenient $ toStrictBytes $ A.encode msg
-  when (level >= LevelInfo) $ notifySlack msg'
+  when (level `elem` [LevelInfo, LevelError]) $ notifySlack msg'
   hPutBuilder stderr $ encodeUtf8Builder msg' <> "\n"
  where
   notifySlack msg = do
