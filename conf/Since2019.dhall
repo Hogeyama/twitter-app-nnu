@@ -59,6 +59,11 @@ in let members =
    , Member Since2019 "東堂コハク"             "kohaku_todo"     1288413439816110081
    , Member Since2019 "北小路ヒスイ"           "Hisui_Kitakoji"  1289831706573250561
    , Member Since2019 "西園チグサ"             "Chigusa_24zono"  1289884632637349888
+   , Member Since2019 "アクシア・クローネ"     "AXIA_96NE"       1414413931955638277
+   , Member Since2019 "ローレン・イロアス"     "Lauren_iroas"    1414416987703300100
+   , Member Since2019 "レオス・ヴィンセント"   "Leos_Vincent"    1409367400709984260
+   , Member Since2019 "オリバー・エバンス"     "oliverD_23"      1414419155881627649
+   , Member Since2019 "レイン・パターソン"     "Lain_Paterson"   1415634931418492935
    -- サブアカウント
    -- , Member Since2019 "ギバさぶ郎"             "GB___2"          1250653534221033473
    ]
