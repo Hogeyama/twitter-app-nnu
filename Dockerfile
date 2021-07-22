@@ -38,7 +38,7 @@ COPY conf /opt/name-update-2434/src/conf
 COPY test /opt/name-update-2434/src/test
 RUN export GIT_REVISION="$GIT_REVISION" \
  && cabal v2-build \
- && cabal v2-test \
+ && cabal v2-test unit doctests \
  && cabal v2-install --installdir=/opt/name-update-2434/bin --install-method=copy
 
 ################################################################################

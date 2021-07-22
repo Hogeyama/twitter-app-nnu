@@ -13,19 +13,18 @@ run: build
 build:
 	cabal v2-build
 
-spec:
+unit-test:
+	cabal run unit
+	cabal run doctests
+
+aws-local-test:
+	make clean-local-aws-env
 	make start-local-dynamodb
-	-cabal run spec
-	# make clean-local-aws-env
+	cabal run aws-local-test || ( make clean-local-aws-env && exit 1 )
+	make clean-local-aws-env
 
 clean:
 	cabal clean
-	# rm $(ELMJS)
-
-# Perform linting with hlint.
-hlint: lint
-lint:
-	hlint src/
 
 ################################################################################
 # docker
@@ -41,7 +40,6 @@ docker-run:
 ################################################################################
 # Local AWS
 ################################################################################
-
 
 # exported for docker-compose
 export DOCKER_NETWORK_NAME := nnu_aws-local
@@ -68,7 +66,7 @@ create-docker-network:
 	docker network create nnu_aws-local; \
 	fi
 
-remove-docker-network: stop-local-dynamodb stop-local-sqs
+remove-docker-network: stop-local-dynamodb
 	@if docker network ls | grep ${DOCKER_NETWORK_NAME} > /dev/null; then \
 	echo '[deleting network]'; \
 	docker network rm nnu_aws-local; \
