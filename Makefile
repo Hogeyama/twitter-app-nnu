@@ -60,18 +60,18 @@ clean-local-aws-env: remove-docker-network
 
 create-docker-network:
 	@if docker network ls | grep ${DOCKER_NETWORK_NAME} > /dev/null; then \
-	echo 'network ${DOCKER_NETWORK_NAME} already exists'; \
+		echo 'network ${DOCKER_NETWORK_NAME} already exists'; \
 	else \
-	echo '[creating network ${DOCKER_NETWORK_NAME}]'; \
-	docker network create nnu_aws-local; \
+		echo '[creating network ${DOCKER_NETWORK_NAME}]'; \
+		docker network create nnu_aws-local; \
 	fi
 
 remove-docker-network: stop-local-dynamodb
 	@if docker network ls | grep ${DOCKER_NETWORK_NAME} > /dev/null; then \
-	echo '[deleting network]'; \
+		echo '[deleting network]'; \
 	docker network rm nnu_aws-local; \
-	else \
-	echo "network ${DOCKER_NETWORK_NAME} does not exists"; \
+		else \
+		echo "network ${DOCKER_NETWORK_NAME} does not exists"; \
 	fi
 
 # DynamoDB
@@ -79,10 +79,10 @@ remove-docker-network: stop-local-dynamodb
 
 start-local-dynamodb: create-docker-network
 	@if cd ./aws/local && docker-compose top | grep -i dynamodb > /dev/null; then \
-	echo "dynamodb-local is up-to-date"; \
+		echo "dynamodb-local is up-to-date"; \
 	else \
-	docker-compose up -d dynamodb; \
-	./dynamodb/initialize.bash > /dev/null; \
+		docker-compose up -d dynamodb; \
+		./dynamodb/initialize.bash > /dev/null; \
 	fi
 
 stop-local-dynamodb:

@@ -19,6 +19,7 @@ import           NNU.App.TwitterBot             ( AppConfig(..)
                                                 , HasAppState(..)
                                                 , LoopConfig(..)
                                                 , mainLoop
+                                                , newAppState
                                                 )
 import qualified NNU.Handler.Db                as Db
 import qualified NNU.Handler.Twitter           as TwitterApi
@@ -101,7 +102,7 @@ mockEnv MockConfig {..} = withResourceMap $ \resourceMap -> do
   tweetRecord          <- newIORef ([] :: [Text])
   (logFunc, logRecord) <- mockLogFunc
   appConfig            <- mockAppConfig
-  appState             <- mockAppState
+  appState             <- newAppState
   mockListsMembers     <- mockSimpleAction "listsMembers" twListsMembersResp
   mockTweet            <- mockSimpleAction "tweet" twTweetResp
   dbState              <- newIORef dbInitialState
@@ -172,12 +173,6 @@ mockLogFunc = do
 
 mockAppConfig :: MonadIO m => m AppConfig
 mockAppConfig = pure AppConfig { group = mockGroup }
-
-mockAppState :: MonadIO m => m AppState
-mockAppState = do
-  store                 <- newIORef Nothing
-  inconsistentDbMembers <- newIORef mempty
-  pure AppState { .. }
 
 mockSimpleAction
   :: (MonadIO m, MonadIO n) => String -> [Either SomeException a] -> m (n a)
