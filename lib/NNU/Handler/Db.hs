@@ -1,6 +1,7 @@
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# OPTIONS_GHC -Wno-unused-binds  #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
 module NNU.Handler.Db
   ( Handler(..)
   , Error(..)
@@ -38,6 +39,7 @@ import qualified RIO.Text                      as T
 import           RIO.Time                       ( ZonedTime )
 import           System.ReadEnvVar              ( readEnv )
 
+import           Data.Time                      ( zonedTimeToUTC )
 import           NNU.Nijisanji                  ( Group
                                                 , GroupName(..)
                                                 , Member
@@ -67,20 +69,23 @@ data CurrentNameItem = CurrentNameItem
   , updateTime  :: ZonedTime
   , twitterName :: Text
   }
-  deriving stock (Show, Generic)
+  deriving stock (Show, Eq, Ord, Generic)
+  deriving anyclass A.ToJSON
 data UpdateCurrentNameItem = UpdateCurrentNameItem
   { member      :: Member
   , updateTime  :: ZonedTime
   , twitterName :: Text
   }
-  deriving stock (Show, Generic)
+  deriving stock (Show, Eq, Ord, Generic)
+  deriving anyclass A.ToJSON
 data HistoryItem = HistoryItem
   { member      :: Member
   , updateTime  :: ZonedTime
   , twitterName :: Text
   , tweetId     :: Natural
   }
-  deriving stock (Show, Generic)
+  deriving stock (Show, Eq, Ord, Generic)
+  deriving anyclass A.ToJSON
 
 -- スキーマ
 --             | PK              | SK                              | Name       | other |
@@ -254,3 +259,13 @@ parseCurrentNameItem item = do
     Right Nothing ->
       Left "parseCurrentNameItem: impossible: 'Member#' not found"
     Left err -> Left err
+
+-------------------------------------------------------------------------------
+-- Orphan instance (TODO: to be moved)
+-------------------------------------------------------------------------------
+
+instance Eq ZonedTime where
+  (==) = (==) `on` zonedTimeToUTC
+instance Ord ZonedTime where
+  compare = compare `on` zonedTimeToUTC
+

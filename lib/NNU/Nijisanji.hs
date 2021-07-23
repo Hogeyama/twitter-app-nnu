@@ -1,4 +1,5 @@
 {-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE DeriveAnyClass #-}
 {-# OPTIONS_GHC -Wno-partial-fields #-}
 
 module NNU.Nijisanji
@@ -17,7 +18,7 @@ module NNU.Nijisanji
 import           Data.Aeson                     ( FromJSON(parseJSON)
                                                 , ToJSON(toJSON)
                                                 )
-import qualified Data.Aeson                    as J
+import qualified Data.Aeson                    as A
 import qualified Dhall
 import           RIO
 import qualified RIO.Text                      as T
@@ -34,6 +35,7 @@ data Member = Member
   , userId     :: Natural
   }
   deriving stock (Show, Eq, Ord, Generic)
+  deriving anyclass A.ToJSON
 instance NFData Member
 instance Dhall.FromDhall Member
 
@@ -61,13 +63,13 @@ instance Show GroupName where
     Other l   -> T.unpack l
 instance ToJSON GroupName where
   toJSON = \case
-    Nijisanji -> J.String "一期生・二期生"
-    Gamers    -> J.String "ゲーマーズ"
-    SEEDs     -> J.String "SEEDs"
-    Since2019 -> J.String "Since2019"
-    Other g   -> J.String g
+    Nijisanji -> A.String "一期生・二期生"
+    Gamers    -> A.String "ゲーマーズ"
+    SEEDs     -> A.String "SEEDs"
+    Since2019 -> A.String "Since2019"
+    Other g   -> A.String g
 instance FromJSON GroupName where
-  parseJSON = J.withText "GroupName" $ \case
+  parseJSON = A.withText "GroupName" $ \case
     "一期生・二期生"   -> return Nijisanji
     "ゲーマーズ"     -> return Gamers
     "SEEDs"     -> return SEEDs
