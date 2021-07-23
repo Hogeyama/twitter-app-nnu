@@ -286,10 +286,6 @@ postTweet diff@DiffMember {..}
   = do
     Logger.error $ "possibly personal information: " <> memberName
     pure False
-  | isTestMember member
-  = do
-    Logger.info ("test user updated" :: Text)
-    pure True
   | otherwise
   = do
     alreadyPosted >>= \case
