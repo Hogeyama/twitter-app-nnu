@@ -18,6 +18,9 @@ RUN cabal init -p name-update && cabal update && cabal install --lib \
   microlens-platform \
   aeson \
   amazonka-dynamodb \
+  hspec \
+  hspec-discover \
+  doctest \
   dhall
 COPY ./name-update.cabal /opt/name-update-2434/src/name-update.cabal
 RUN cabal v2-build --only-dependencies
