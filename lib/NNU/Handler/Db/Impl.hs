@@ -1,7 +1,9 @@
 module NNU.Handler.Db.Impl
   ( defaultHandler
-  , newAwsEnv
-  , newLocalAwsEnv
+  , Config(..)
+  , configFromEnv
+  , configGlobalAwsFromEnv
+  , configLocalAwsFromEnv
   ) where
 
 
@@ -17,7 +19,9 @@ import qualified Network.AWS                   as AWS
 import qualified Network.AWS.DynamoDB          as Dynamo
 import qualified RIO.HashMap                   as HM
 import qualified RIO.Text                      as T
-import           System.ReadEnvVar              ( readEnv )
+import           System.ReadEnvVar              ( lookupEnv
+                                                , readEnv
+                                                )
 
 import           NNU.Handler.Db
 import           NNU.Nijisanji                  ( Group
@@ -27,21 +31,46 @@ import           NNU.Nijisanji                  ( Group
 import           NNU.Prelude             hiding ( Handler )
 
 
--------------------------------------------------------------------------------
--- default implementation
--------------------------------------------------------------------------------
+data Config = Config
+  { cfgTableName :: Text
+  , cfgAwsEnv    :: AWS.Env
+  }
+
+-- | Use local DynamoDB if @NNU_USE_LOCAL_AWS=1@.
+configFromEnv :: (MonadIO m, MonadCatch m) => m Config
+configFromEnv = readEnv "NNU_USE_LOCAL_AWS" >>= \case
+  Just (1 :: Int) -> configLocalAwsFromEnv
+  _               -> configGlobalAwsFromEnv
+
+-- brittany-disable-next-binding
+-- | Force to use global DynamoDB.
+configGlobalAwsFromEnv :: (MonadIO m, MonadCatch m) => m Config
+configGlobalAwsFromEnv = do
+  cfgTableName <- lookupEnv "NNU_TABLE_NAME" >>= \case
+    Just t  -> pure t
+    -- テーブルを間違えると悲惨なことになるので死ぬべき
+    Nothing -> throwString "NNU_TABLE_NAME not set"
+  cfgAwsEnv <- AWST.newEnv AWST.Discover
+    <&> AWST.envRegion .~  AWST.Tokyo
+    <&> AWST.configure Dynamo.dynamoDB
+  pure Config { .. }
+
+-- | Force to use local DynamoDB.
+configLocalAwsFromEnv :: (MonadIO m, MonadCatch m) => m Config
+configLocalAwsFromEnv = do
+  cfg  <- configGlobalAwsFromEnv
+  port <- fromMaybe 8000 <$> readEnv "NNU_LOCAL_DYNAMODB_PORT"
+  let dynamoLocal = AWST.setEndpoint False "localhost" port Dynamo.dynamoDB
+  pure cfg { cfgAwsEnv = AWST.configure dynamoLocal (cfgAwsEnv cfg) }
 
 -- brittany-disable-next-binding
 defaultHandler
   :: forall n env
    . (MonadIO n, HasResourceMap env)
-  => AWS.Env
+  => Config
   -> n (Handler (RIO env))
-defaultHandler awsEnv = pure Handler { .. }
+defaultHandler Config {..} = pure Handler { .. }
  where
-  -- TODO
-  -- 'length members' が十分に大きかったら
-  -- SK=Current で SGI にクエリする
   getCurrentName :: Member -> RIO env CurrentNameItem
   getCurrentName member = do
     res <- rethrowingAny (throw'.tshow) $ runAws $ AWST.send getItem
@@ -51,7 +80,7 @@ defaultHandler awsEnv = pure Handler { .. }
       (200, Left err) -> throw' err
       _ -> throw' statusCode
    where
-    getItem = Dynamo.getItem _TABLE_NAME
+    getItem = Dynamo.getItem cfgTableName
       & Dynamo.giKey .~ HM.fromList [("PK", mkS pk), ("SK", mkS sk)]
       & Dynamo.giConsistentRead ?~ True
     throw' :: A.ToJSON e => e -> RIO env a
@@ -71,7 +100,7 @@ defaultHandler awsEnv = pure Handler { .. }
       (200, _ ) -> throw' errors
       _ -> throw' statusCode
    where
-    query = Dynamo.query _TABLE_NAME
+    query = Dynamo.query cfgTableName
       & Dynamo.qIndexName ?~ _CURRENT_NAME_INDEX
       & Dynamo.qKeyConditionExpression ?~ condition
       & Dynamo.qExpressionAttributeValues .~ values
@@ -88,7 +117,7 @@ defaultHandler awsEnv = pure Handler { .. }
     let statusCode = res ^. Dynamo.pirsResponseStatus
     unless (statusCode == 200) $ throw' statusCode
    where
-    putItem = Dynamo.putItem "NNU" & Dynamo.piItem .~ HM.fromList
+    putItem = Dynamo.putItem cfgTableName & Dynamo.piItem .~ HM.fromList
       [ ("PK"   , mkS $ "Member#" <> member ^. the @"memberName")
       , ("SK"   , mkS "Current")
       , ("Time" , mkS updateTime')
@@ -105,7 +134,7 @@ defaultHandler awsEnv = pure Handler { .. }
     let statusCode = res ^. Dynamo.pirsResponseStatus
     unless (statusCode == 200) $ throw' statusCode
    where
-    putItem = Dynamo.putItem "NNU" & Dynamo.piItem .~ HM.fromList
+    putItem = Dynamo.putItem cfgTableName & Dynamo.piItem .~ HM.fromList
       [ ("PK"     , mkS $ "Member#" <> member ^. the @"memberName")
       , ("SK"     , mkS $ "History#" <> updateTime')
       , ("Name"   , mkS twitterName)
@@ -119,14 +148,14 @@ defaultHandler awsEnv = pure Handler { .. }
   getHistroy _ = undefined
 
   runAws :: forall a. RIO (TmpEnv env) a -> RIO env a
-  runAws = mapRIO $ TmpEnv awsEnv
-
--- TODO 環境変数で扱う
-_TABLE_NAME :: Text
-_TABLE_NAME = "NNU"
+  runAws = mapRIO $ TmpEnv cfgAwsEnv
 
 _CURRENT_NAME_INDEX :: Text
 _CURRENT_NAME_INDEX = "CURRENT_NAME-index"
+
+-------------------------------------------------------------------------------
+-- Util
+-------------------------------------------------------------------------------
 
 data TmpEnv env = TmpEnv
   { awsEnv :: AWS.Env
@@ -138,16 +167,16 @@ instance HasResourceMap env => HasResourceMap (TmpEnv env) where
 instance AWS.HasEnv (TmpEnv env) where
   environment = the @"awsEnv"
 
+throwError
+  :: (MonadIO m, A.ToJSON req, A.ToJSON err) => Text -> req -> err -> m a
+throwError methodName req err = throwIO $ Error $ A.object
+  ["message" A..= methodName, "request" A..= req, "error" A..= err]
+
 rethrowingAny
   :: (MonadUnliftIO m, NFData a) => (SomeException -> m a) -> m a -> m a
 rethrowingAny throw' action = tryAnyDeep action >>= \case
   Right res -> pure res
   Left  err -> throw' err
-
-throwError
-  :: (MonadIO m, A.ToJSON req, A.ToJSON err) => Text -> req -> err -> m a
-throwError methodName req err = throwIO $ Error $ A.object
-  ["message" A..= methodName, "request" A..= req, "error" A..= err]
 
 -- TODO doctest
 parseCurrentNameItem
@@ -163,18 +192,6 @@ parseCurrentNameItem item = do
     Right Nothing ->
       Left "parseCurrentNameItem: impossible: 'Member#' not found"
     Left err -> Left err
-
--- brittany-disable-next-binding
-newAwsEnv :: (MonadIO m, MonadCatch m) => m AWS.Env
-newAwsEnv = AWST.newEnv AWST.Discover
-  <&> AWST.envRegion .~ AWST.Tokyo
-  <&> AWST.configure Dynamo.dynamoDB
-
-newLocalAwsEnv :: (MonadIO m, MonadCatch m) => m AWS.Env
-newLocalAwsEnv = do
-  port <- fromMaybe 8000 <$> readEnv "LOCAL_DYNAMODB_PORT"
-  let dynamoLocal = AWST.setEndpoint False "localhost" port Dynamo.dynamoDB
-  newAwsEnv <&> AWST.configure dynamoLocal
 
 mkS :: Text -> Dynamo.AttributeValue
 mkS s = Dynamo.attributeValue & Dynamo.avS ?~ s

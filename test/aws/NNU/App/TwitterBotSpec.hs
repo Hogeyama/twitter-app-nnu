@@ -98,7 +98,7 @@ mockEnv MockConfig {..} = withResourceMap $ \resourceMap -> do
   mockListsMembers     <- mockSimpleAction "listsMembers" twListsMembersResp
   mockTweet            <- mockSimpleAction "tweet" twTweetResp
   dbState              <- newIORef dbInitialState
-  db                   <- DbImpl.defaultHandler =<< DbImpl.newLocalAwsEnv
+  db                   <- DbImpl.defaultHandler =<< DbImpl.configLocalAwsFromEnv
   let twitter = mockTwitterHandler mockListsMembers mockTweet tweetRecord
       env     = MockEnv { .. }
   runRIO env $ do

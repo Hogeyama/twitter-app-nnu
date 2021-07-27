@@ -17,6 +17,9 @@ unit-test:
 	cabal run unit
 	cabal run doctests
 
+aws-local-test: export NNU_USE_LOCAL_AWS=1
+aws-local-test: export NNU_TABLE_NAME=NNU
+aws-local-test: export NNU_LOCAL_DYNAMODB_PORT=${LOCAL_DYNAMODB_PORT}
 aws-local-test:
 	make clean-local-aws-env
 	make start-local-dynamodb
@@ -43,11 +46,7 @@ docker-run:
 
 # exported for docker-compose
 export DOCKER_NETWORK_NAME := nnu_aws-local
-
-# should equals to ./aws/local/sqs/custom.conf#rest-sqs.bind-port
-export LOCAL_SQS_PORT         := 9324
-export LOCAL_DYNAMODB_PORT    := 8000
-export LOCAL_API_GATEWAY_PORT := 3000
+export LOCAL_DYNAMODB_PORT := 8000
 
 # clean
 #######

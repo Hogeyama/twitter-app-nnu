@@ -45,7 +45,7 @@ runApp :: forall env . (Logger.Has env) => AppConfig -> RIO env ()
 runApp appConfig = withResourceMap $ \resourceMap -> do
   let prefix = map toUpper $ show $ groupLabel $ group appConfig
   twitter  <- TwitterImpl.defaultHandler <$> TwitterImpl.twConfigFromEnv prefix
-  db       <- DbImpl.defaultHandler =<< DbImpl.newAwsEnv
+  db       <- DbImpl.defaultHandler =<< DbImpl.configGlobalAwsFromEnv
   appState <- newAppState
   mapRIO
     (\super -> Env { appConfig, appState, twitter, db, resourceMap, super })
