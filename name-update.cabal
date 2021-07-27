@@ -74,7 +74,9 @@ library
   exposed-modules:
     NNU.App.TwitterBot
     NNU.Handler.Db
+    NNU.Handler.Db.Impl
     NNU.Handler.Twitter
+    NNU.Handler.Twitter.Impl
     NNU.Logger
     NNU.Nijisanji
     NNU.Prelude
@@ -179,9 +181,7 @@ test-suite aws-local-test
   hs-source-dirs:     test/aws
 
   -- cabal-fmt: expand test/aws -Spec
-  other-modules:
-    NNU.App.TwitterBotSpec
-
+  other-modules:      NNU.App.TwitterBotSpec
   main-is:            Spec.hs
   build-tool-depends: hspec-discover:hspec-discover -any
 

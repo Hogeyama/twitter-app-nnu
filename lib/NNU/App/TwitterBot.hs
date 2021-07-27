@@ -27,7 +27,9 @@ import qualified RIO.Set                       as Set
 import qualified RIO.Text                      as T
 
 import qualified NNU.Handler.Db                as Db
+import qualified NNU.Handler.Db.Impl           as DbImpl
 import qualified NNU.Handler.Twitter           as Twitter
+import qualified NNU.Handler.Twitter.Impl      as TwitterImpl
 import qualified NNU.Logger                    as Logger
 import           NNU.Nijisanji
 import           NNU.Prelude
@@ -42,8 +44,8 @@ runApps configs = runConc $ mconcat $ map (conc . runApp) configs
 runApp :: forall env . (Logger.Has env) => AppConfig -> RIO env ()
 runApp appConfig = withResourceMap $ \resourceMap -> do
   let prefix = map toUpper $ show $ groupLabel $ group appConfig
-  twitter  <- Twitter.defaultHandler <$> Twitter.twConfigFromEnv prefix
-  db       <- Db.defaultHandler =<< Db.newAwsEnv
+  twitter  <- TwitterImpl.defaultHandler <$> TwitterImpl.twConfigFromEnv prefix
+  db       <- DbImpl.defaultHandler =<< DbImpl.newAwsEnv
   appState <- newAppState
   mapRIO
     (\super -> Env { appConfig, appState, twitter, db, resourceMap, super })

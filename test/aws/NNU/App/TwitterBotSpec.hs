@@ -4,7 +4,7 @@ module NNU.App.TwitterBotSpec
   ( spec
   ) where
 
-
+import           Control.Exception.Safe         ( MonadCatch )
 import qualified Data.Aeson                    as J
 import           Data.Dynamic                   ( fromDynamic
                                                 , toDyn
@@ -13,6 +13,16 @@ import           Data.Generics.Product          ( HasAny(the) )
 import           Data.Typeable                  ( typeOf
                                                 , typeRep
                                                 )
+import           RIO                     hiding ( when )
+import qualified RIO.HashMap                   as HM
+import qualified RIO.Map                       as M
+import qualified RIO.Map                       as Map
+import qualified RIO.Partial                   as Partial
+import qualified RIO.Text                      as T
+import           Test.Hspec
+import           Web.Twitter.Conduit.Request.Internal
+                                                ( rawParam )
+
 import           NNU.App.TwitterBot             ( AppConfig(..)
                                                 , AppState(..)
                                                 , HasAppConfig(..)
@@ -22,7 +32,7 @@ import           NNU.App.TwitterBot             ( AppConfig(..)
                                                 , newAppState
                                                 )
 import qualified NNU.Handler.Db                as Db
-import qualified NNU.Handler.Twitter           as TwitterApi
+import qualified NNU.Handler.Db.Impl           as DbImpl
 import qualified NNU.Handler.Twitter           as Twitter
 import           NNU.Logger                     ( LogFunc'
                                                 , LogItem
@@ -32,25 +42,7 @@ import           NNU.Nijisanji                  ( Group(..)
                                                 , GroupName(Other)
                                                 , Member(Member)
                                                 )
-import           RIO                     hiding ( when )
-import qualified RIO.HashMap                   as HM
-import qualified RIO.Map                       as M
-import           RIO.Orphans
-import qualified RIO.Partial                   as Partial
-import           RIO.Partial                    ( toEnum )
-import qualified RIO.Text                      as T
-import qualified RIO.Time                      as Time
-import           RIO.Time                       ( TimeZone(TimeZone)
-                                                , UTCTime(UTCTime)
-                                                , ZonedTime
-                                                , utcToZonedTime
-                                                )
-import           Test.Hspec
-
-import           Control.Exception.Safe         ( MonadCatch )
-import qualified RIO.Map                       as Map
-import           Web.Twitter.Conduit.Request.Internal
-                                                ( rawParam )
+import           NNU.Prelude
 
 
 -------------------------------------------------------------------------------
@@ -106,7 +98,7 @@ mockEnv MockConfig {..} = withResourceMap $ \resourceMap -> do
   mockListsMembers     <- mockSimpleAction "listsMembers" twListsMembersResp
   mockTweet            <- mockSimpleAction "tweet" twTweetResp
   dbState              <- newIORef dbInitialState
-  db                   <- Db.defaultHandler =<< Db.newAwsEnv
+  db                   <- DbImpl.defaultHandler =<< DbImpl.newLocalAwsEnv
   let twitter = mockTwitterHandler mockListsMembers mockTweet tweetRecord
       env     = MockEnv { .. }
   runRIO env $ do
@@ -437,7 +429,7 @@ shouldReturnJSON m expected = do
 -------------------------------------------------------------------------------
 
 testTime :: ZonedTime
-testTime = utcToZonedTime jst $ UTCTime (toEnum 0) 0
+testTime = utcToZonedTime jst $ UTCTime (Partial.toEnum 0) 0
  where
   jst = TimeZone { timeZoneMinutes    = 9 * 60
                  , timeZoneSummerOnly = False
