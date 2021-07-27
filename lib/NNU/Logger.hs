@@ -15,10 +15,11 @@ module NNU.Logger
   ) where
 
 import qualified Data.Aeson                    as A
-import qualified NNU.TH                        as TH
 import           Network.HTTP.Simple           as HTTP
-import           RIO                     hiding ( error )
 import qualified RIO.Text                      as T
+
+import           NNU.Prelude             hiding ( error )
+import qualified NNU.TH                        as TH
 
 type LogFunc' = GLogFunc LogItem
 data LogItem = LogItem LogLevel A.Value

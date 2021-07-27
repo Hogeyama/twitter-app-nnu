@@ -19,25 +19,18 @@ module NNU.App.TwitterBot
 
 import qualified Data.Aeson                    as A
 import           Data.Generics.Product          ( HasAny(the) )
-import           Lens.Micro.Platform           as L
-                                                ( (?~)
-                                                , both
-                                                )
-import qualified NNU.Handler.Db                as Db
-import qualified NNU.Handler.Twitter           as Twitter
-import qualified NNU.Logger                    as Logger
-import           NNU.Nijisanji
-import           RIO                     hiding ( Data )
 import           RIO.Char                       ( isAscii
                                                 , toUpper
                                                 )
 import qualified RIO.Map                       as Map
-import           RIO.Orphans                    ( HasResourceMap(..)
-                                                , ResourceMap
-                                                , withResourceMap
-                                                )
 import qualified RIO.Set                       as Set
 import qualified RIO.Text                      as T
+
+import qualified NNU.Handler.Db                as Db
+import qualified NNU.Handler.Twitter           as Twitter
+import qualified NNU.Logger                    as Logger
+import           NNU.Nijisanji
+import           NNU.Prelude
 
 -------------------------------------------------------------------------------
 -- Main {{{

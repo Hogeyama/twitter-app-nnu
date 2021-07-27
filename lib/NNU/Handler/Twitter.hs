@@ -15,15 +15,13 @@ module NNU.Handler.Twitter
   , module X
   ) where
 
-import           RIO                     hiding ( Handler )
-import qualified RIO.Text                      as T
-import           RIO.Time
-
 import           Data.Aeson                     ( FromJSON )
 import qualified Data.Aeson                    as J
 import qualified Data.ByteString.Char8         as BC
 import           Data.Generics.Product          ( the )
 import           Prelude                        ( read )
+import qualified RIO.Text                      as T
+import           RIO.Time
 import           System.Environment             ( getEnv )
 import           System.IO.Unsafe               ( unsafePerformIO )
 import qualified Web.Twitter.Conduit           as Twitter
@@ -35,6 +33,8 @@ import           Web.Twitter.Conduit.Parameters
                                                as X
 import           Web.Twitter.Conduit.Status    as X
                                                 ( update )
+
+import           NNU.Prelude             hiding ( Handler )
 
 newtype Handler m = Handler
   { callApi :: forall apiName r _r

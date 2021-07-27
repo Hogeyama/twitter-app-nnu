@@ -20,9 +20,10 @@ import           Data.Aeson                     ( FromJSON(parseJSON)
                                                 )
 import qualified Data.Aeson                    as A
 import qualified Dhall
-import           RIO
 import qualified RIO.Text                      as T
 import           System.IO.Unsafe               ( unsafePerformIO )
+
+import           NNU.Prelude
 
 -------------------------------------------------------------------------------
 -- Member

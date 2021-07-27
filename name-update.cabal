@@ -77,6 +77,7 @@ library
     NNU.Handler.Twitter
     NNU.Logger
     NNU.Nijisanji
+    NNU.Prelude
     NNU.TH
 
   build-depends:
@@ -127,9 +128,7 @@ test-suite unit
   hs-source-dirs:     test/unit
 
   -- cabal-fmt: expand test/unit -Spec -Doctests
-  other-modules:
-    NNU.App.TwitterBotSpec
-
+  other-modules:      NNU.App.TwitterBotSpec
   main-is:            Spec.hs
   build-tool-depends: hspec-discover:hspec-discover -any
 
@@ -179,7 +178,7 @@ test-suite aws-local-test
   type:               exitcode-stdio-1.0
   hs-source-dirs:     test/aws
 
-  -- cabal-fmt: expand test/aws
+  -- cabal-fmt: expand test/aws -Spec
   other-modules:
     NNU.App.TwitterBotSpec
 

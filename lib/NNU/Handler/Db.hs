@@ -1,22 +1,19 @@
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE DeriveAnyClass #-}
-{-# OPTIONS_GHC -Wno-unused-binds  #-}
-{-# OPTIONS_GHC -Wno-orphans #-}
 module NNU.Handler.Db
-  ( Handler(..)
+  ( -- * Interface
+    Handler(..)
   , Error(..)
   , Has(..)
   , CurrentNameItem(..)
   , HistoryItem(..)
   , UpdateCurrentNameItem(..)
   , invoke
+    -- * Default implementatoin
   , defaultHandler
   , newAwsEnv
   , newLocalAwsEnv
   ) where
-
-import           Lens.Micro.Platform
-import           RIO                     hiding ( Handler )
 
 import           Control.Error.Util             ( note )
 import           Control.Exception.Safe         ( MonadCatch )
@@ -27,23 +24,21 @@ import qualified Control.Method                as Method
 import qualified Control.Monad.Trans.AWS       as AWST
 import qualified Data.Aeson                    as A
 import           Data.Generics.Product          ( the )
-import           Data.Time.Format.ISO8601       ( ISO8601(iso8601Format)
-                                                , formatShow
+import           Data.Time.Format.ISO8601       ( formatShow
                                                 , iso8601ParseM
                                                 )
 import qualified Network.AWS                   as AWS
 import qualified Network.AWS.DynamoDB          as Dynamo
 import qualified RIO.HashMap                   as HM
-import           RIO.Orphans                    ( HasResourceMap(..) )
 import qualified RIO.Text                      as T
-import           RIO.Time                       ( ZonedTime )
 import           System.ReadEnvVar              ( readEnv )
 
-import           Data.Time                      ( zonedTimeToUTC )
+
 import           NNU.Nijisanji                  ( Group
                                                 , GroupName(..)
                                                 , Member
                                                 )
+import           NNU.Prelude             hiding ( Handler )
 
 data Handler m = Handler
   { getCurrentName         :: Member -> m CurrentNameItem
@@ -118,10 +113,6 @@ lookupS :: Text -> HashMap Text Dynamo.AttributeValue -> Either Text Text
 lookupS f m = do
   v <- note (f <> " not found") $ HM.lookup f m
   note (f <> " is not a text") $ view Dynamo.avS v
-
-mkN :: Text -> Dynamo.AttributeValue
-mkN s = Dynamo.attributeValue & Dynamo.avN ?~ s
-
 
 -------------------------------------------------------------------------------
 -- default implementation
@@ -259,13 +250,4 @@ parseCurrentNameItem item = do
     Right Nothing ->
       Left "parseCurrentNameItem: impossible: 'Member#' not found"
     Left err -> Left err
-
--------------------------------------------------------------------------------
--- Orphan instance (TODO: to be moved)
--------------------------------------------------------------------------------
-
-instance Eq ZonedTime where
-  (==) = (==) `on` zonedTimeToUTC
-instance Ord ZonedTime where
-  compare = compare `on` zonedTimeToUTC
 
