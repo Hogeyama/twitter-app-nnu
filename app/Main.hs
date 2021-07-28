@@ -2,20 +2,26 @@ module Main
   ( main
   ) where
 
-import           GHC.IO.Encoding
-import           NNU.App.TwitterBot            as Bot
-import           NNU.Logger
 import           RIO
+
+import           GHC.IO.Encoding                ( setFileSystemEncoding
+                                                , setLocaleEncoding
+                                                , utf8
+                                                )
+import qualified Data.Aeson                    as J
 import           System.ReadEnvVar              ( readEnvDef )
-import qualified Data.Aeson as J
+
+import qualified NNU.App.TwitterBot            as Bot
+import qualified NNU.Logger                    as Logger
+
 
 main :: IO ()
 main = do
   setLocaleEncoding utf8
   setFileSystemEncoding utf8
-  runRIO defaultLogFunc' $ logAnyError $ do
+  runRIO Logger.defaultLogFunc' $ logAnyError $ do
     isTest <- readEnvDef "NNU_TEST" False
-    logI $ J.object
+    Logger.info $ J.object
       [ "msg" J..= ("NNU on AWS has started" :: Text)
       , "is_test" J..= isTest
       ]
@@ -28,4 +34,4 @@ main = do
             , Bot.since2019AppConfig
             ]
     Bot.runApps appConfigs
-  where logAnyError = flip withException $ logE . show @SomeException
+  where logAnyError = flip withException $ Logger.error . show @SomeException

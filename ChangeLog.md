@@ -1,8 +1,12 @@
 
+# 0.3.0.0
+
+* Use DynamoDB as master DB
+
 # 0.2.1.1
 
-+ Fix bugs
-+ Add test
+* Fix bugs
+* Add test
 
 # 0.2.1.1
 

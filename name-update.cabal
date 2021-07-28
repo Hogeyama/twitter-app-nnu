@@ -1,6 +1,6 @@
 cabal-version: 2.4
 name:          name-update
-version:       0.2.2.0
+version:       0.3.0.0
 license:       BSD-3-Clause
 license-file:  LICENSE
 build-type:    Custom
@@ -73,9 +73,13 @@ library
   -- cabal-fmt: expand ./lib
   exposed-modules:
     NNU.App.TwitterBot
+    NNU.Handler.Db
+    NNU.Handler.Db.Impl
     NNU.Handler.Twitter
+    NNU.Handler.Twitter.Impl
     NNU.Logger
     NNU.Nijisanji
+    NNU.Prelude
     NNU.TH
 
   build-depends:
@@ -86,6 +90,7 @@ library
     , bytestring
     , containers
     , dhall               >=1.24.0
+    , errors
     , generic-lens
     , hierarchical-env
     , http-conduit
@@ -119,16 +124,13 @@ executable name-update-2434
     , read-env-var
     , rio           >=0.1.16.0
 
-test-suite spec
+test-suite unit
   import:             common-options
   type:               exitcode-stdio-1.0
-  hs-source-dirs:     test
+  hs-source-dirs:     test/unit
 
-  -- cabal-fmt: expand test -Spec -Doctests
-  other-modules:
-    NNU.App.TwitterBotSpec
-    TestUtil
-
+  -- cabal-fmt: expand test/unit -Spec -Doctests
+  other-modules:      NNU.App.TwitterBotSpec
   main-is:            Spec.hs
   build-tool-depends: hspec-discover:hspec-discover -any
 
@@ -140,22 +142,25 @@ test-suite spec
 
   build-depends:
     , aeson
-    , base         >=4.7      && <5
+    , base             >=4.7      && <5
     , doctest
-    , twitter-conduit     ^>=0.5.0
-    , twitter-types
-    , hspec
     , generic-lens
+    , hspec
+    , hspec-core
     , method
     , name-update
     , QuickCheck
-    , rio          >=0.1.16.0
+    , rio              >=0.1.16.0
+    , rio-orphans
+    , safe-exceptions
+    , twitter-conduit  ^>=0.5.0
+    , twitter-types
 
 test-suite doctests
   import:         common-options
   type:           exitcode-stdio-1.0
   main-is:        Doctests.hs
-  hs-source-dirs: test
+  hs-source-dirs: test/doctests
   ghc-options:    -Wno-missing-import-lists
   build-depends:
     , aeson
@@ -169,6 +174,38 @@ test-suite doctests
 
   if impl(ghc >=8.8)
     ghc-options: -Wno-missing-deriving-strategies
+
+test-suite aws-local-test
+  import:             common-options
+  type:               exitcode-stdio-1.0
+  hs-source-dirs:     test/aws
+
+  -- cabal-fmt: expand test/aws -Spec
+  other-modules:      NNU.App.TwitterBotSpec
+  main-is:            Spec.hs
+  build-tool-depends: hspec-discover:hspec-discover -any
+
+  if impl(ghc >=8.4)
+    ghc-options: -Wno-missing-export-lists
+
+  if impl(ghc >=8.8)
+    ghc-options: -Wno-missing-deriving-strategies
+
+  build-depends:
+    , aeson
+    , base             >=4.7      && <5
+    , doctest
+    , generic-lens
+    , hspec
+    , hspec-core
+    , method
+    , name-update
+    , QuickCheck
+    , rio              >=0.1.16.0
+    , rio-orphans
+    , safe-exceptions
+    , twitter-conduit  ^>=0.5.0
+    , twitter-types
 
 -- executable test
 --   import:           common-options
