@@ -64,6 +64,9 @@ in let members =
    , Member Since2019 "レオス・ヴィンセント"   "Leos_Vincent"    1409367400709984260
    , Member Since2019 "オリバー・エバンス"     "oliverD_23"      1414419155881627649
    , Member Since2019 "レイン・パターソン"     "Lain_Paterson"   1415634931418492935
+   , Member Since2019 "天ヶ瀬むゆ"             "Muyu_Amagase"    1499215310834237444
+   , Member Since2019 "先斗寧"                 "ponto_nei"       1498892400110243846
+   , Member Since2019 "海妹四葉"               "Yotsuha_Umise"   1498921872326807553
    -- サブアカウント
    -- , Member Since2019 "ギバさぶ郎"             "GB___2"          1250653534221033473
    ]
