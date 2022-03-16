@@ -2,8 +2,6 @@ module Main
   ( main
   ) where
 
-import           RIO
-
 import qualified Data.Aeson                    as J
 import           GHC.IO.Encoding                ( setFileSystemEncoding
                                                 , setLocaleEncoding
@@ -13,6 +11,7 @@ import           System.ReadEnvVar              ( lookupEnv
                                                 , readEnvDef
                                                 )
 
+import           NNU.Prelude
 import qualified NNU.App.TwitterBot            as Bot
 import qualified NNU.Logger                    as Logger
 

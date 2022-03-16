@@ -28,17 +28,42 @@ aws-local-test:
 
 clean:
 	cabal clean
+	rm -rf ./build
 
 ################################################################################
 # docker
 ################################################################################
 
-# Build a docker image.
-docker-build:
-	docker build -t name-update-2434 .
+PUBLIC_ECR_URL  := public.ecr.aws/q3v2w3q5
+IMAGE_REPO_NAME := hogeyama/nnu
 
-docker-run:
-	docker run --interactive --tty --rm --network host name-update-2434
+export DOCKER_BUILDKIT := 1
+
+docker-ecr-login:
+	# aws ecr-public get-login-password --region us-east-1 \
+	# 	| docker login --username AWS --password-stdin "${PUBLIC_ECR_URL}"
+
+docker-build-depimage: docker-ecr-login
+	docker build \
+		--cache-from "${PUBLIC_ECR_URL}/${IMAGE_REPO_NAME}:dependency" \
+		--build-arg BUILDKIT_INLINE_CACHE=1 \
+		--tag "${IMAGE_REPO_NAME}:dependency" \
+		--target dependency \
+		.
+
+docker-build: docker-build-depimage
+	$(eval GIT_BRANCH   := $(shell git symbolic-ref HEAD --short))
+	$(eval GIT_REVISION := $(shell git rev-parse HEAD))
+	docker build \
+		--cache-from "${IMAGE_REPO_NAME}:dependency" \
+		--build-arg BUILDKIT_INLINE_CACHE=1 \
+		--build-arg GIT_REVISION="${GIT_BRANCH}@${GIT_REVISION}" \
+		--tag "${IMAGE_REPO_NAME}" \
+		.
+
+docker-update-depimage: docker-build-depimage
+	docker tag "${IMAGE_REPO_NAME}:dependency" "${PUBLIC_ECR_URL}/${IMAGE_REPO_NAME}:dependency"
+	docker push "${PUBLIC_ECR_URL}/${IMAGE_REPO_NAME}:dependency"
 
 ################################################################################
 # Local AWS

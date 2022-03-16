@@ -7,7 +7,8 @@ FROM haskell:8.10.4-buster as dependency
 ENV LANG C.UTF-8
 RUN apt-get update && apt-get install -y \
     postgresql-11 \
-    postgresql-server-dev-11
+    postgresql-server-dev-11 \
+    patchelf
 RUN mkdir -p /opt/name-update-2434/bin
 RUN mkdir -p /opt/name-update-2434/src
 WORKDIR /opt/name-update-2434/src
@@ -17,10 +18,12 @@ RUN cabal init -p name-update && cabal update && cabal install --lib \
   generic-lens \
   microlens-platform \
   aeson \
+  amazonka \
   amazonka-dynamodb \
   hspec \
   hspec-discover \
   doctest \
+  hal \
   dhall
 COPY ./name-update.cabal /opt/name-update-2434/src/name-update.cabal
 RUN cabal v2-build --only-dependencies
@@ -42,23 +45,21 @@ COPY test /opt/name-update-2434/src/test
 RUN export GIT_REVISION="$GIT_REVISION" \
  && cabal v2-build \
  && cabal v2-test unit doctests \
- && cabal v2-install --installdir=/opt/name-update-2434/bin --install-method=copy
+ && cabal v2-install --installdir=/opt/name-update-2434/bin --install-method=copy \
+ && cabal v2-clean
+WORKDIR /opt/name-update-2434/bin
+RUN mkdir ./dll \
+  && cp $(ldd ./name-update-2434 | grep -F '=> /' | awk '{ print $3 }') ./dll \
+  && patchelf --set-rpath ./dll ./name-update-2434 \
+  && ldd ./name-update-2434
 
 ################################################################################
-# Run
+# TwitterBot
 ################################################################################
 
 FROM debian:buster-slim as runner
 COPY --from=builder /opt/name-update-2434/ /opt/name-update-2434/
-COPY --from=builder /usr/lib/x86_64-linux-gnu/* /usr/lib/x86_64-linux-gnu/
-COPY --from=builder /lib/x86_64-linux-gnu/* /lib/x86_64-linux-gnu/
-COPY --from=builder /usr/bin/curl /usr/bin/curl
-
-# Add the apiuser and setup their PATH.
-RUN useradd -ms /bin/bash apiuser
-RUN chown -R apiuser:apiuser /opt/name-update-2434
 RUN apt-get update && apt-get install -y ca-certificates
-USER apiuser
 
 WORKDIR /opt/name-update-2434/src
 CMD /opt/name-update-2434/bin/name-update-2434
