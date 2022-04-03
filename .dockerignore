@@ -1,13 +1,15 @@
-# docker
-Dockerfile
-.dockerignore
-# git
-.git/
-# stack build directory
-.stack-work/
-# elm
-elm-stuff/
-public/elm.js
-# others
-.key
-TODO
+*
+!app/
+!lib/
+!test/
+!conf/
+!Setup.hs
+!LICENSE
+!name-update.cabal
+!cabal.project
+!default.nix
+!flake.nix
+!flake.lock
+!nix/
+!git-revision
+!Makefile

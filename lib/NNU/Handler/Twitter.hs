@@ -76,7 +76,7 @@ instance FromJSON Tweet where
                    }
 
 tweet :: (Has env) => T.Text -> RIO env Tweet
-tweet = call' . update
+tweet = call' . statusesUpdate
 
 data User = User
   { userId   :: Natural

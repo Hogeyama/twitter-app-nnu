@@ -1,8 +1,12 @@
+cabal.project.local
 dist-newstyle/
 .stack-work/
 .key
 .hie/
 .env
+.direnv/
 env.*
 TODO
-local/
+result
+.vim/
+.local

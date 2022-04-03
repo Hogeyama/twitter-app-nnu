@@ -92,8 +92,6 @@ library
     , dhall               >=1.24.0
     , errors
     , generic-lens
-    , hal
-    , hierarchical-env
     , http-conduit
     , method
     , microlens-platform
@@ -106,7 +104,7 @@ library
     , template-haskell
     , text
     , time
-    , twitter-conduit     ^>=0.5.0
+    , twitter-conduit     ^>=0.6.0
 
   other-modules:    Paths_name_update
   hs-source-dirs:   lib
@@ -133,7 +131,7 @@ test-suite unit
   -- cabal-fmt: expand test/unit -Spec -Doctests
   other-modules:      NNU.App.TwitterBotSpec
   main-is:            Spec.hs
-  build-tool-depends: hspec-discover:hspec-discover -any
+  -- build-tool-depends: hspec-discover:hspec-discover -any
 
   if impl(ghc >=8.4)
     ghc-options: -Wno-missing-export-lists
@@ -154,7 +152,7 @@ test-suite unit
     , rio              >=0.1.16.0
     , rio-orphans
     , safe-exceptions
-    , twitter-conduit  ^>=0.5.0
+    , twitter-conduit  ^>=0.6.0
     , twitter-types
 
 test-suite doctests
@@ -184,7 +182,7 @@ test-suite aws-local-test
   -- cabal-fmt: expand test/aws -Spec
   other-modules:      NNU.App.TwitterBotSpec
   main-is:            Spec.hs
-  build-tool-depends: hspec-discover:hspec-discover -any
+  -- build-tool-depends: hspec-discover:hspec-discover -any
 
   if impl(ghc >=8.4)
     ghc-options: -Wno-missing-export-lists
@@ -205,7 +203,7 @@ test-suite aws-local-test
     , rio              >=0.1.16.0
     , rio-orphans
     , safe-exceptions
-    , twitter-conduit  ^>=0.5.0
+    , twitter-conduit  ^>=0.6.0
     , twitter-types
 
 -- executable test
