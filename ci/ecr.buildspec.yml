@@ -33,6 +33,7 @@ phases:
         if [ "$CODEBUILD_GIT_BRANCH" = "" ] ; then
           export CODEBUILD_GIT_BRANCH="$(git rev-parse HEAD | xargs git name-rev | cut -d' ' -f2 | sed 's/remotes\/origin\///g')";
         fi
+        echo -n "$CODEBUILD_GIT_BRANCH@$CODEBUILD_GIT_REVISION" > ./git-revision
   build:
     commands:
       - echo Build started on `date`
@@ -40,7 +41,6 @@ phases:
       - >
         docker build
         --build-arg BUILDKIT_INLINE_CACHE=1
-        --build-arg GIT_REVISION="$CODEBUILD_GIT_BRANCH@$CODEBUILD_GIT_REVISION"
         --tag "${IMAGE_REPO_NAME}:${IMAGE_REPO_PUSH_TAG}"
         .
       - docker tag "${IMAGE_REPO_NAME}:${IMAGE_REPO_PUSH_TAG}" "${PUBLIC_ECR_URL}/${IMAGE_REPO_NAME}:${IMAGE_REPO_PUSH_TAG}"

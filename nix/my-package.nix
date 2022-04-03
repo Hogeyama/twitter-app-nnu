@@ -16,6 +16,7 @@ let
     "README.md"
     "CHANGELOG.md"
     "LICENSE"
+    "git-revision"
   ];
   haskPkgs = pkgs.haskell.packages.${compiler};
   myPkg = haskPkgs.callCabal2nix "name-update" src { };
