@@ -2,3 +2,14 @@ services:
   main:
     build: .
     env_file: .env
+  dynamodb:
+    image: amazon/dynamodb-local
+    command:
+      - "-jar"
+      - "DynamoDBLocal.jar"
+      - "-sharedDb"
+      - "-dbPath"
+      - "."
+      - "-optimizeDbBeforeStartup"
+    ports:
+      - "8000:8000"
