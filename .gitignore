@@ -9,4 +9,5 @@ env.*
 TODO
 result
 .vim/
+.nlsp-settings/
 .local
