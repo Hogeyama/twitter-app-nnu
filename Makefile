@@ -1,7 +1,4 @@
-.PHONY: build clean docker-build ghci heroku-release hlint lint run watch
-all: build
-
-ELMJS=public/elm.js
+.DEFAULT_GOAL := build
 
 ################################################################################
 # local
@@ -9,15 +6,19 @@ ELMJS=public/elm.js
 
 run: build
 	cabal v2-run
+.PHONY: run
 
 build:
 	cabal v2-build
+.PHONY: build
 
 test: test-no-docker test-docker
+.PHONY: test
 
 test-no-docker:
 	cabal run unit
 	cabal run doctests
+.PHONY: test-no-docker
 
 test-docker: export NNU_USE_LOCAL_AWS=1
 test-docker: export NNU_TABLE_NAME=NNU_DEVELOP
@@ -27,9 +28,11 @@ test-docker:
 	./scripts/setup-local-dynamodb.bash >/dev/null
 	cabal run aws-local-test || ( docker compose down && exit 1 )
 	docker compose down
+.PHONY: test-docker
 
 clean:
 	cabal clean
+.PHONY: clean
 
 ################################################################################
 # docker
@@ -51,6 +54,7 @@ docker-build:
 		--build-arg GIT_REVISION="${GIT_BRANCH}@${GIT_REVISION}" \
 		--tag "${IMAGE_REPO_NAME}" \
 		.
+.PHONY: docker-build
 
 ################################################################################
 # AWS
@@ -59,3 +63,4 @@ docker-build:
 get-secret-parameters:
 	aws ssm get-parameters-by-path --with-decryption --path '/NijisanjiNameUpdate' \
 		| jq '.Parameters[] | { name: .Name, value: .Value }'
+.PHONY: get-secret-parameters
