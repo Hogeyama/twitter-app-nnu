@@ -89,8 +89,12 @@ mockDbStateFromList xs = MockDbState $ Map.fromList
   [ (member ^. the @"memberName", x) | x@Db.UpdateCurrentNameItem {..} <- xs ]
 
 mockEnv
-  :: forall m . (MonadUnliftIO m, MonadCatch m) => MockConfig -> m MockEnv
-mockEnv MockConfig {..} = withResourceMap $ \resourceMap -> do
+  :: forall m
+   . (MonadUnliftIO m, MonadCatch m)
+  => ResourceMap
+  -> MockConfig
+  -> m MockEnv
+mockEnv resourceMap MockConfig {..} = do
   tweetRecord          <- newIORef ([] :: [Text])
   (logFunc, logRecord) <- mockLogFunc
   appConfig            <- mockAppConfig
@@ -237,10 +241,11 @@ mockDbInitialState = mockDbStateFromList
 type ListsMembersResp
   = Twitter.WithCursor Integer Twitter.UsersCursorKey Twitter.User
 
-spec :: Spec
-spec = do
+spec :: ResourceMap -> Spec
+spec resource = do
+  let mockEnv' = mockEnv @IO resource
   describe "twitter name change" $ do
-    env <- runIO $ mockEnv MockConfig
+    env <- runIO $ mockEnv' MockConfig
       { dbInitialState     = mockDbInitialState
       , twListsMembersResp = [ Right Twitter.WithCursor
                                { nextCursor = Nothing
@@ -290,7 +295,7 @@ spec = do
           [("Tanaka Hanako", "Tanaka Mark-Ⅱ"), ("Yamada Taro", "Yamada Mark-Ⅲ")]
         )
   describe "user not in list" $ do
-    env <- runIO $ mockEnv MockConfig
+    env <- runIO $ mockEnv' MockConfig
       { dbInitialState     = mockDbInitialState
       , twListsMembersResp = [ Right Twitter.WithCursor
                                  { nextCursor = Nothing
@@ -311,7 +316,7 @@ spec = do
       getCurrentState env
         `shouldReturn` Just (M.fromList [("Yamada Taro", "Yamada Mark-Ⅱ")])
   describe "error in listsMembers response" $ do
-    env <- runIO $ mockEnv MockConfig
+    env <- runIO $ mockEnv' MockConfig
       { dbInitialState     = mockDbInitialState
       , twListsMembersResp = [ Left $ SomeException $ stringException
                                  "Twitter Down"
@@ -329,7 +334,7 @@ spec = do
     it "is not tweeted" $ do
       getTweetRecord env `shouldReturn` []
   describe "error in first tweet post" $ do
-    env <- runIO $ mockEnv MockConfig
+    env <- runIO $ mockEnv' MockConfig
       { dbInitialState = mockDbInitialState
       , twListsMembersResp = [ Right Twitter.WithCursor
                                { nextCursor = Nothing
@@ -373,7 +378,7 @@ spec = do
                            ]
                        ]
   describe "error in first tweet post" $ do
-    env <- runIO $ mockEnv MockConfig
+    env <- runIO $ mockEnv' MockConfig
       { dbInitialState = mockDbInitialState
       , twListsMembersResp = [ Right Twitter.WithCursor
                                { nextCursor = Nothing

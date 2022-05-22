@@ -1,1 +1,9 @@
-{-# OPTIONS_GHC -Wno-all -F -pgmF hspec-discover #-}
+import qualified NNU.App.TwitterBotSpec        as TwitterBot
+                                                ( spec )
+import           NNU.Prelude
+import           Test.Hspec
+
+main :: IO ()
+main = withResourceMap $ \resource -> do
+  hspec $ do
+    TwitterBot.spec resource
