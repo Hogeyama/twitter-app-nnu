@@ -191,7 +191,7 @@ isListsMemberQuery q =
   Twitter._url q == Twitter._url (Twitter.listsMembers mockListParam)
 
 isTweetQuery :: Twitter.APIRequest name r -> Bool
-isTweetQuery q = Twitter._url q == Twitter._url (Twitter.update "")
+isTweetQuery q = Twitter._url q == Twitter._url (Twitter.statusesUpdate "")
 
 -- Mock Data
 ----------------
