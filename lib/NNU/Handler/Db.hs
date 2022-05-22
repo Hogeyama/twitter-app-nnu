@@ -66,12 +66,6 @@ data HistoryItem = HistoryItem
   deriving stock (Show, Eq, Ord, Generic)
   deriving anyclass A.ToJSON
 
--- スキーマ
---             | PK              | SK                              | Name       | other |
--- CurrentName | Member#月ノ美兎 | Current                         | 月ノ美兎🐰 | 2021-07-03T23:20:00.123(Time) |
--- History     | Member#月ノ美兎 | History#2021-07-03T23:20:00.123 | 月ノ美兎🐰 | 1234...(TweetId) |
--- History     | Member#月ノ美兎 | History#2021-07-02T22:10:00.233 | 月ノ美兎   | 1233...(TweetId) |
-
 invoke
   :: (Method method, Has env, Base method ~ RIO env)
   => SimpleGetter (Handler (Base method)) method
