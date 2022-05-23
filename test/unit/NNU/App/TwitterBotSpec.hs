@@ -1,72 +1,76 @@
 {-# LANGUAGE BlockArguments #-}
 
-module NNU.App.TwitterBotSpec
-  ( spec
-  ) where
+module NNU.App.TwitterBotSpec (
+  spec,
+) where
 
+import qualified Data.Aeson as J
+import Data.Dynamic (
+  fromDynamic,
+  toDyn,
+ )
+import Data.Generics.Product (HasAny (the))
+import Data.Typeable (
+  typeOf,
+  typeRep,
+ )
+import NNU.App.TwitterBot (
+  AppConfig (..),
+  AppState (..),
+  HasAppConfig (..),
+  HasAppState (..),
+  LoopConfig (..),
+  mainLoop,
+  newAppState,
+ )
+import qualified NNU.Handler.Db as Db
+import qualified NNU.Handler.Twitter as Twitter
+import NNU.Logger (
+  LogFunc',
+  LogItem,
+  mkLogFunc',
+ )
+import NNU.Nijisanji (
+  Group (..),
+  GroupName (Other),
+  Member (Member),
+ )
+import RIO hiding (when)
+import qualified RIO.HashMap as HM
+import qualified RIO.Map as M
+import RIO.Orphans
+import RIO.Partial (toEnum)
+import qualified RIO.Partial as Partial
+import qualified RIO.Text as T
+import RIO.Time (
+  TimeZone (TimeZone),
+  UTCTime (UTCTime),
+  ZonedTime,
+  utcToZonedTime,
+ )
+import qualified RIO.Time as Time
+import Test.Hspec
 
-import qualified Data.Aeson                    as J
-import           Data.Dynamic                   ( fromDynamic
-                                                , toDyn
-                                                )
-import           Data.Generics.Product          ( HasAny(the) )
-import           Data.Typeable                  ( typeOf
-                                                , typeRep
-                                                )
-import           NNU.App.TwitterBot             ( AppConfig(..)
-                                                , AppState(..)
-                                                , HasAppConfig(..)
-                                                , HasAppState(..)
-                                                , LoopConfig(..)
-                                                , mainLoop
-                                                , newAppState
-                                                )
-import qualified NNU.Handler.Db                as Db
-import qualified NNU.Handler.Twitter           as TwitterApi
-import qualified NNU.Handler.Twitter           as Twitter
-import           NNU.Logger                     ( LogFunc'
-                                                , LogItem
-                                                , mkLogFunc'
-                                                )
-import           NNU.Nijisanji                  ( Group(..)
-                                                , GroupName(Other)
-                                                , Member(Member)
-                                                )
-import           RIO                     hiding ( when )
-import qualified RIO.HashMap                   as HM
-import qualified RIO.Map                       as M
-import           RIO.Orphans
-import qualified RIO.Partial                   as Partial
-import           RIO.Partial                    ( toEnum )
-import qualified RIO.Text                      as T
-import qualified RIO.Time                      as Time
-import           RIO.Time                       ( TimeZone(TimeZone)
-                                                , UTCTime(UTCTime)
-                                                , ZonedTime
-                                                , utcToZonedTime
-                                                )
-import           Test.Hspec
-
-import qualified RIO.Map                       as Map
-import           Web.Twitter.Conduit.Request.Internal
-                                                ( rawParam )
-
+import qualified RIO.Map as Map
+import Web.Twitter.Conduit.Request.Internal (
+  rawParam,
+ )
 
 -------------------------------------------------------------------------------
 -- Mock
 
 data MockEnv = MockEnv
-  { appConfig   :: AppConfig
-  , appState    :: AppState
-  , logFunc     :: LogFunc'
-  , twitter     :: Twitter.Handler (RIO MockEnv)
-  , db          :: Db.Handler (RIO MockEnv)
-  , dbState     :: IORef MockDbState
-  , logRecord   :: IORef [J.Value]
+  { appConfig :: AppConfig
+  , appState :: AppState
+  , logFunc :: LogFunc'
+  , twitter :: Twitter.Handler (RIO MockEnv)
+  , db :: Db.Handler (RIO MockEnv)
+  , dbState :: IORef MockDbState
+  , logRecord :: IORef [J.Value]
   , tweetRecord :: IORef [Text]
   , resourceMap :: ResourceMap
   }
-  deriving stock Generic
+  deriving stock (Generic)
 instance HasGLogFunc MockEnv where
   type GMsg MockEnv = LogItem
   gLogFuncL = the @"logFunc"
@@ -83,35 +87,36 @@ instance HasResourceMap MockEnv where
 
 data MockConfig = MockConfig
   { twListsMembersResp :: [Either SomeException ListsMembersResp]
-  , twTweetResp        :: [Either SomeException Twitter.Tweet]
-  , dbInitialState     :: MockDbState
+  , twTweetResp :: [Either SomeException Twitter.Tweet]
+  , dbInitialState :: MockDbState
   }
 
 data MockDbState = MockDbState (Map Text Db.CurrentNameItem)
 
 mockDbStateFromList :: [Db.CurrentNameItem] -> MockDbState
-mockDbStateFromList xs = MockDbState
-  $ Map.fromList [ (memberName, x) | x@Db.CurrentNameItem {..} <- xs ]
+mockDbStateFromList xs =
+  MockDbState $
+    Map.fromList [(memberName, x) | x@Db.CurrentNameItem {..} <- xs]
 
-mockEnv
-  :: forall m . (MonadUnliftIO m) => ResourceMap -> MockConfig -> m MockEnv
+mockEnv ::
+  forall m. (MonadUnliftIO m) => ResourceMap -> MockConfig -> m MockEnv
 mockEnv resourceMap MockConfig {..} = do
-  tweetRecord          <- newIORef ([] :: [Text])
+  tweetRecord <- newIORef ([] :: [Text])
   (logFunc, logRecord) <- mockLogFunc
-  appConfig            <- mockAppConfig
-  appState             <- newAppState
-  mockListsMembers     <- mockSimpleAction "listsMembers" twListsMembersResp
-  mockTweet            <- mockSimpleAction "tweet" twTweetResp
-  dbState              <- newIORef dbInitialState
+  appConfig <- mockAppConfig
+  appState <- newAppState
+  mockListsMembers <- mockSimpleAction "listsMembers" twListsMembersResp
+  mockTweet <- mockSimpleAction "tweet" twTweetResp
+  dbState <- newIORef dbInitialState
   let twitter = mockTwitterHandler mockListsMembers mockTweet tweetRecord
-      db      = mockDbHandler
-  pure MockEnv { .. }
+      db = mockDbHandler
+  pure MockEnv {..}
 
-mockTwitterHandler
-  :: RIO MockEnv ListsMembersResp
-  -> RIO MockEnv Twitter.Tweet
-  -> IORef [Text]
-  -> Twitter.Handler (RIO MockEnv)
+mockTwitterHandler ::
+  RIO MockEnv ListsMembersResp ->
+  RIO MockEnv Twitter.Tweet ->
+  IORef [Text] ->
+  Twitter.Handler (RIO MockEnv)
 mockTwitterHandler mockListsMembers mockTweet tweetRecord =
   Twitter.Handler $ \case
     r
@@ -120,41 +125,42 @@ mockTwitterHandler mockListsMembers mockTweet tweetRecord =
       | isTweetQuery r -> do
         tryAny mockTweet >>= \case
           Right tweet -> do
-            modifyIORef' tweetRecord
-                         (Partial.fromJust (r ^. rawParam "status") :)
+            modifyIORef'
+              tweetRecord
+              (Partial.fromJust (r ^. rawParam "status") :)
             unsafeCoerceM' tweet
           Left e -> throwIO e
       | otherwise -> do
         throwString $ "mockTwitter: Unexpected request: " <> show r
- where
-  unsafeCoerceM'
-    :: forall x y n . (Typeable x, Typeable y, MonadIO n) => x -> n y
-  unsafeCoerceM' x = case fromDynamic (toDyn x) of
-    Just y -> pure y
-    Nothing ->
-      throwIO
-        $  stringException
-        $  "unsafeCoerce': fail to  coerce "
-        <> show (typeOf x)
-        <> " to "
-        <> show (typeRep (Proxy @y))
+  where
+    unsafeCoerceM' ::
+      forall x y n. (Typeable x, Typeable y, MonadIO n) => x -> n y
+    unsafeCoerceM' x = case fromDynamic (toDyn x) of
+      Just y -> pure y
+      Nothing ->
+        throwIO $
+          stringException $
+            "unsafeCoerce': fail to  coerce "
+              <> show (typeOf x)
+              <> " to "
+              <> show (typeRep (Proxy @y))
 
 mockDbHandler :: Db.Handler (RIO MockEnv)
-mockDbHandler = Db.Handler { .. }
- where
-  getCurrentName member = do
-    let memberName = member ^. the @"memberName"
-    MockDbState m <- readIORef =<< view (to dbState)
-    pure $ Partial.fromJust $ Map.lookup memberName m
-  getCurrentNamesOfGroup Group { members } = mapM getCurrentName members
-  updateCurrentName Db.UpdateCurrentNameItem {..} = do
-    let memberName = member ^. the @"memberName"
-        cni        = Db.CurrentNameItem { .. }
-    ref <- view (to dbState)
-    modifyIORef' ref $ \case
-      MockDbState m -> MockDbState (Map.insert memberName cni m)
-  putHistory _ = pure ()
-  getHistroy _ = undefined
+mockDbHandler = Db.Handler {..}
+  where
+    getCurrentName member = do
+      let memberName = member ^. the @"memberName"
+      MockDbState m <- readIORef =<< view (to dbState)
+      pure $ Partial.fromJust $ Map.lookup memberName m
+    getCurrentNamesOfGroup Group {members} = mapM getCurrentName members
+    updateCurrentName Db.UpdateCurrentNameItem {..} = do
+      let memberName = member ^. the @"memberName"
+          cni = Db.CurrentNameItem {..}
+      ref <- view (to dbState)
+      modifyIORef' ref $ \case
+        MockDbState m -> MockDbState (Map.insert memberName cni m)
+    putHistory _ = pure ()
+    getHistroy _ = undefined
 
 -- Mock Operation
 -----------------
@@ -176,30 +182,32 @@ mockLogFunc = do
   ref <- newIORef []
   let logFunc = mkLogFunc' $ \_level value -> do
         case value of
-          J.Object hm | Just body <- HM.lookup "body" hm ->
-            modifyIORef' ref (body :)
+          J.Object hm
+            | Just body <- HM.lookup "body" hm ->
+              modifyIORef' ref (body :)
           _ -> throwString "impossible"
         pure ()
   return (logFunc, ref)
 
 mockAppConfig :: MonadIO m => m AppConfig
-mockAppConfig = pure AppConfig { group = mockGroup }
+mockAppConfig = pure AppConfig {group = mockGroup}
 
-mockSimpleAction
-  :: (MonadIO m, MonadIO n) => String -> [Either SomeException a] -> m (n a)
+mockSimpleAction ::
+  (MonadIO m, MonadIO n) => String -> [Either SomeException a] -> m (n a)
 mockSimpleAction name xs = do
   ref <- newIORef xs
-  pure $ readIORef ref >>= \case
-    [] ->
-      throwString
-        $  "mockAction `"
-        <> name
-        <> "` called more than "
-        <> show (length xs)
-        <> " times"
-    y : ys -> do
-      writeIORef ref ys
-      either throwIO pure y
+  pure $
+    readIORef ref >>= \case
+      [] ->
+        throwString $
+          "mockAction `"
+            <> name
+            <> "` called more than "
+            <> show (length xs)
+            <> " times"
+      y : ys -> do
+        writeIORef ref ys
+        either throwIO pure y
 
 isListsMemberQuery :: Twitter.APIRequest name r -> Bool
 isListsMemberQuery q =
@@ -212,10 +220,12 @@ isTweetQuery q = Twitter._url q == Twitter._url (Twitter.statusesUpdate "")
 ----------------
 
 mockGroup :: Group
-mockGroup = Group { groupLabel = mockGroupName
-                  , listId     = 0
-                  , members    = [mockMember1, mockMember2]
-                  }
+mockGroup =
+  Group
+    { groupLabel = mockGroupName
+    , listId = 0
+    , members = [mockMember1, mockMember2]
+    }
 
 mockGroupName :: GroupName
 mockGroupName = Other "mock"
@@ -239,90 +249,118 @@ mockListParam :: Twitter.ListParam
 mockListParam = Twitter.ListIdParam $ fromIntegral mockListId
 
 mockDbInitialState :: MockDbState
-mockDbInitialState = mockDbStateFromList
-  [ Db.CurrentNameItem { memberName  = mockMember1 ^. the @"memberName"
-                       , updateTime  = testTime
-                       , twitterName = "Yamada Mark-Ⅱ"
-                       }
-  , Db.CurrentNameItem { memberName  = mockMember2 ^. the @"memberName"
-                       , updateTime  = testTime
-                       , twitterName = "Tanaka Mark-Ⅱ"
-                       }
-  ]
+mockDbInitialState =
+  mockDbStateFromList
+    [ Db.CurrentNameItem
+        { memberName = mockMember1 ^. the @"memberName"
+        , updateTime = testTime
+        , twitterName = "Yamada Mark-Ⅱ"
+        }
+    , Db.CurrentNameItem
+        { memberName = mockMember2 ^. the @"memberName"
+        , updateTime = testTime
+        , twitterName = "Tanaka Mark-Ⅱ"
+        }
+    ]
 
 -------------------------------------------------------------------------------
 -- Spec
 
-type ListsMembersResp
-  = Twitter.WithCursor Integer Twitter.UsersCursorKey Twitter.User
+type ListsMembersResp =
+  Twitter.WithCursor Integer Twitter.UsersCursorKey Twitter.User
 
 spec :: ResourceMap -> Spec
 spec resourceMap = do
   let mockEnv' = mockEnv @IO resourceMap
   describe "twitter name change" $ do
-    env <- runIO $ mockEnv' MockConfig
-      { dbInitialState     = mockDbInitialState
-      , twListsMembersResp = [ Right Twitter.WithCursor
-                               { nextCursor = Nothing
-                               , previousCursor = Nothing
-                               , contents = [ mkTwitterUser1 "Yamada Mark-Ⅱ"
-                                            , mkTwitterUser2 "Tanaka Mark-Ⅱ"
-                                            ]
-                               }
-                             , Right Twitter.WithCursor
-                               { nextCursor = Nothing
-                               , previousCursor = Nothing
-                               , contents = [ mkTwitterUser1 "Yamada Mark-Ⅲ"
-                                            , mkTwitterUser2 "Tanaka Mark-Ⅱ"
-                                            ]
-                               }
-                             ]
-      , twTweetResp        = [ Right Twitter.Tweet { tweetId   = 0
-                                                   , createdAt = testTime
-                                                   }
-                             ]
-      }
-    runIO $ runRIO env $ mainLoop LoopConfig { loopCount    = Just 2
-                                             , loopDelaySec = 0
-                                             }
+    env <-
+      runIO $
+        mockEnv'
+          MockConfig
+            { dbInitialState = mockDbInitialState
+            , twListsMembersResp =
+                [ Right
+                    Twitter.WithCursor
+                      { nextCursor = Nothing
+                      , previousCursor = Nothing
+                      , contents =
+                          [ mkTwitterUser1 "Yamada Mark-Ⅱ"
+                          , mkTwitterUser2 "Tanaka Mark-Ⅱ"
+                          ]
+                      }
+                , Right
+                    Twitter.WithCursor
+                      { nextCursor = Nothing
+                      , previousCursor = Nothing
+                      , contents =
+                          [ mkTwitterUser1 "Yamada Mark-Ⅲ"
+                          , mkTwitterUser2 "Tanaka Mark-Ⅱ"
+                          ]
+                      }
+                ]
+            , twTweetResp =
+                [ Right
+                    Twitter.Tweet
+                      { tweetId = 0
+                      , createdAt = testTime
+                      }
+                ]
+            }
+    runIO $
+      runRIO env $
+        mainLoop
+          LoopConfig
+            { loopCount = Just 2
+            , loopDelaySec = 0
+            }
     it "is logged" $ do
       getLogRecord env
         `shouldReturn` [ J.object
-                           [ "message" J..= ("twitter name changed" :: Text)
-                           , "member" J..= ("Yamada Taro" :: Text)
-                           , "before" J..= ("Yamada Mark-Ⅱ" :: Text)
-                           , "after" J..= ("Yamada Mark-Ⅲ" :: Text)
-                           ]
+                          [ "message" J..= ("twitter name changed" :: Text)
+                          , "member" J..= ("Yamada Taro" :: Text)
+                          , "before" J..= ("Yamada Mark-Ⅱ" :: Text)
+                          , "after" J..= ("Yamada Mark-Ⅲ" :: Text)
+                          ]
                        ]
     it "is tweeted" $ do
       getTweetRecord env
         `shouldReturn` [ T.unlines
-                           [ "Yamada Taro(twitter.com/t_yamada)さんが名前を変更しました"
-                           , ""
-                           , "Yamada Mark-Ⅲ"
-                           , "⇑"
-                           , "Yamada Mark-Ⅱ"
-                           ]
+                          [ "Yamada Taro(twitter.com/t_yamada)さんが名前を変更しました"
+                          , ""
+                          , "Yamada Mark-Ⅲ"
+                          , "⇑"
+                          , "Yamada Mark-Ⅱ"
+                          ]
                        ]
     it "alters state" $ do
-      getCurrentState env `shouldReturn` Just
-        (M.fromList
-          [("Tanaka Hanako", "Tanaka Mark-Ⅱ"), ("Yamada Taro", "Yamada Mark-Ⅲ")]
-        )
+      getCurrentState env
+        `shouldReturn` Just
+          ( M.fromList
+              [("Tanaka Hanako", "Tanaka Mark-Ⅱ"), ("Yamada Taro", "Yamada Mark-Ⅲ")]
+          )
   describe "user not in list" $ do
-    env <- runIO $ mockEnv' MockConfig
-      { dbInitialState     = mockDbInitialState
-      , twListsMembersResp = [ Right Twitter.WithCursor
-                                 { nextCursor = Nothing
-                                 , previousCursor = Nothing
-                                 , contents = [mkTwitterUser1 "Yamada Mark-Ⅱ"]
-                                 }
-                             ]
-      , twTweetResp        = []
-      }
-    runIO $ runRIO env $ mainLoop LoopConfig { loopCount    = Just 1
-                                             , loopDelaySec = 0
-                                             }
+    env <-
+      runIO $
+        mockEnv'
+          MockConfig
+            { dbInitialState = mockDbInitialState
+            , twListsMembersResp =
+                [ Right
+                    Twitter.WithCursor
+                      { nextCursor = Nothing
+                      , previousCursor = Nothing
+                      , contents = [mkTwitterUser1 "Yamada Mark-Ⅱ"]
+                      }
+                ]
+            , twTweetResp = []
+            }
+    runIO $
+      runRIO env $
+        mainLoop
+          LoopConfig
+            { loopCount = Just 1
+            , loopDelaySec = 0
+            }
     it "is logged" $ do
       getLogRecord env `shouldReturn` ["Tanaka Hanako not found"]
     it "is not tweeted" $ do
@@ -331,120 +369,163 @@ spec resourceMap = do
       getCurrentState env
         `shouldReturn` Just (M.fromList [("Yamada Taro", "Yamada Mark-Ⅱ")])
   describe "error in listsMembers response" $ do
-    env <- runIO $ mockEnv' MockConfig
-      { dbInitialState     = mockDbInitialState
-      , twListsMembersResp = [ Left $ SomeException $ stringException
-                                 "Twitter Down"
-                             ]
-      , twTweetResp        = []
-      }
-    runIO $ runRIO env $ mainLoop LoopConfig { loopCount    = Just 1
-                                             , loopDelaySec = 0
-                                             }
+    env <-
+      runIO $
+        mockEnv'
+          MockConfig
+            { dbInitialState = mockDbInitialState
+            , twListsMembersResp =
+                [ Left $
+                    SomeException $
+                      stringException
+                        "Twitter Down"
+                ]
+            , twTweetResp = []
+            }
+    runIO $
+      runRIO env $
+        mainLoop
+          LoopConfig
+            { loopCount = Just 1
+            , loopDelaySec = 0
+            }
     it "is logged" $ do
       logs <- getLogRecord env
       logs `shouldSatisfy` \case
         [J.String e] -> "Twitter Down" `T.isInfixOf` e
-        _            -> False
+        _ -> False
     it "is not tweeted" $ do
       getTweetRecord env `shouldReturn` []
   describe "error in first tweet post" $ do
-    env <- runIO $ mockEnv' MockConfig
-      { dbInitialState = mockDbInitialState
-      , twListsMembersResp = [ Right Twitter.WithCursor
-                               { nextCursor = Nothing
-                               , previousCursor = Nothing
-                               , contents = [ mkTwitterUser1 "Yamada Mark-Ⅱ"
-                                            , mkTwitterUser2 "Tanaka Mark-Ⅱ"
-                                            ]
-                               }
-                             , Right Twitter.WithCursor
-                               { nextCursor = Nothing
-                               , previousCursor = Nothing
-                               , contents = [ mkTwitterUser1 "Yamada Mark-Ⅲ"
-                                            , mkTwitterUser2 "Tanaka Mark-Ⅲ"
-                                            ]
-                               }
-                             ]
-      , twTweetResp = [ Left $ SomeException $ stringException "Twitter Down"
-                      , Right Twitter.Tweet { tweetId   = 0
-                                            , createdAt = testTime
-                                            }
-                      ]
-      }
-    runIO $ runRIO env $ mainLoop LoopConfig { loopCount    = Just 2
-                                             , loopDelaySec = 0
-                                             }
+    env <-
+      runIO $
+        mockEnv'
+          MockConfig
+            { dbInitialState = mockDbInitialState
+            , twListsMembersResp =
+                [ Right
+                    Twitter.WithCursor
+                      { nextCursor = Nothing
+                      , previousCursor = Nothing
+                      , contents =
+                          [ mkTwitterUser1 "Yamada Mark-Ⅱ"
+                          , mkTwitterUser2 "Tanaka Mark-Ⅱ"
+                          ]
+                      }
+                , Right
+                    Twitter.WithCursor
+                      { nextCursor = Nothing
+                      , previousCursor = Nothing
+                      , contents =
+                          [ mkTwitterUser1 "Yamada Mark-Ⅲ"
+                          , mkTwitterUser2 "Tanaka Mark-Ⅲ"
+                          ]
+                      }
+                ]
+            , twTweetResp =
+                [ Left $ SomeException $ stringException "Twitter Down"
+                , Right
+                    Twitter.Tweet
+                      { tweetId = 0
+                      , createdAt = testTime
+                      }
+                ]
+            }
+    runIO $
+      runRIO env $
+        mainLoop
+          LoopConfig
+            { loopCount = Just 2
+            , loopDelaySec = 0
+            }
     it "is logged" $ do
       logs <- getLogRecord env
       logs `shouldSatisfy` any \case
-        J.Object o | Just (J.String e) <- HM.lookup "error" o ->
-          "Twitter Down" `T.isInfixOf` e
+        J.Object o
+          | Just (J.String e) <- HM.lookup "error" o ->
+            "Twitter Down" `T.isInfixOf` e
         J.String e -> "Twitter Down" `T.isInfixOf` e
-        _          -> False
+        _ -> False
     it "does not affect other tweets" $ do
       getTweetRecord env
         `shouldReturn` [ T.unlines
-                           [ "Tanaka Hanako(twitter.com/h_tanaka)さんが名前を変更しました"
-                           , ""
-                           , "Tanaka Mark-Ⅲ"
-                           , "⇑"
-                           , "Tanaka Mark-Ⅱ"
-                           ]
+                          [ "Tanaka Hanako(twitter.com/h_tanaka)さんが名前を変更しました"
+                          , ""
+                          , "Tanaka Mark-Ⅲ"
+                          , "⇑"
+                          , "Tanaka Mark-Ⅱ"
+                          ]
                        ]
   describe "error in first tweet post" $ do
-    env <- runIO $ mockEnv' MockConfig
-      { dbInitialState = mockDbInitialState
-      , twListsMembersResp = [ Right Twitter.WithCursor
-                               { nextCursor = Nothing
-                               , previousCursor = Nothing
-                               , contents = [ mkTwitterUser1 "Yamada Mark-Ⅱ"
-                                            , mkTwitterUser2 "Tanaka Mark-Ⅱ"
-                                            ]
-                               }
-                             , Right Twitter.WithCursor
-                               { nextCursor = Nothing
-                               , previousCursor = Nothing
-                               , contents = [ mkTwitterUser1 "Yamada Mark-Ⅲ"
-                                            , mkTwitterUser2 "Tanaka Mark-Ⅱ"
-                                            ]
-                               }
-                             , Right Twitter.WithCursor
-                               { nextCursor = Nothing
-                               , previousCursor = Nothing
-                               , contents = [ mkTwitterUser1 "Yamada Mark-Ⅲ"
-                                            , mkTwitterUser2 "Tanaka Mark-Ⅱ"
-                                            ]
-                               }
-                             ]
-      , twTweetResp = [ Left $ SomeException $ stringException "Twitter Down"
-                      , Right Twitter.Tweet { tweetId   = 0
-                                            , createdAt = testTime
-                                            }
-                      ]
-      }
-    runIO $ runRIO env $ mainLoop LoopConfig { loopCount    = Just 3
-                                             , loopDelaySec = 0
-                                             }
+    env <-
+      runIO $
+        mockEnv'
+          MockConfig
+            { dbInitialState = mockDbInitialState
+            , twListsMembersResp =
+                [ Right
+                    Twitter.WithCursor
+                      { nextCursor = Nothing
+                      , previousCursor = Nothing
+                      , contents =
+                          [ mkTwitterUser1 "Yamada Mark-Ⅱ"
+                          , mkTwitterUser2 "Tanaka Mark-Ⅱ"
+                          ]
+                      }
+                , Right
+                    Twitter.WithCursor
+                      { nextCursor = Nothing
+                      , previousCursor = Nothing
+                      , contents =
+                          [ mkTwitterUser1 "Yamada Mark-Ⅲ"
+                          , mkTwitterUser2 "Tanaka Mark-Ⅱ"
+                          ]
+                      }
+                , Right
+                    Twitter.WithCursor
+                      { nextCursor = Nothing
+                      , previousCursor = Nothing
+                      , contents =
+                          [ mkTwitterUser1 "Yamada Mark-Ⅲ"
+                          , mkTwitterUser2 "Tanaka Mark-Ⅱ"
+                          ]
+                      }
+                ]
+            , twTweetResp =
+                [ Left $ SomeException $ stringException "Twitter Down"
+                , Right
+                    Twitter.Tweet
+                      { tweetId = 0
+                      , createdAt = testTime
+                      }
+                ]
+            }
+    runIO $
+      runRIO env $
+        mainLoop
+          LoopConfig
+            { loopCount = Just 3
+            , loopDelaySec = 0
+            }
     it "is retried in the next loop" $ do
       getTweetRecord env
         `shouldReturn` [ T.unlines
-                           [ "Yamada Taro(twitter.com/t_yamada)さんが名前を変更しました"
-                           , ""
-                           , "Yamada Mark-Ⅲ"
-                           , "⇑"
-                           , "Yamada Mark-Ⅱ"
-                           ]
+                          [ "Yamada Taro(twitter.com/t_yamada)さんが名前を変更しました"
+                          , ""
+                          , "Yamada Mark-Ⅲ"
+                          , "⇑"
+                          , "Yamada Mark-Ⅱ"
+                          ]
                        ]
-
 
 -------------------------------------------------------------------------------
 
 testTime :: ZonedTime
 testTime = utcToZonedTime jst $ UTCTime (toEnum 0) 0
- where
-  jst = TimeZone { timeZoneMinutes    = 9 * 60
-                 , timeZoneSummerOnly = False
-                 , timeZoneName       = "JST"
-                 }
-
+  where
+    jst =
+      TimeZone
+        { timeZoneMinutes = 9 * 60
+        , timeZoneSummerOnly = False
+        , timeZoneName = "JST"
+        }
