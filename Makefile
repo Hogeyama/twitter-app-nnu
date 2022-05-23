@@ -12,7 +12,7 @@ build:
 	cabal v2-build
 .PHONY: build
 
-test: test-no-docker test-docker
+test: test-docker test-no-docker
 .PHONY: test
 
 test-no-docker:

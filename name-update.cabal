@@ -73,10 +73,12 @@ library
   -- cabal-fmt: expand ./lib
   exposed-modules:
     NNU.App.TwitterBot
-    NNU.Handler.Db
-    NNU.Handler.Db.Impl
-    NNU.Handler.Twitter
-    NNU.Handler.Twitter.Impl
+    NNU.Effect.Db
+    NNU.Effect.Db.DynamoDbImpl
+    NNU.Effect.Log
+    NNU.Effect.Log.StdoutLogImpl
+    NNU.Effect.Twitter
+    NNU.Effect.Twitter.TwitterImpl
     NNU.Logger
     NNU.Nijisanji
     NNU.Prelude
@@ -96,6 +98,8 @@ library
     , method
     , microlens-platform
     , mtl
+    , polysemy
+    , polysemy-plugin
     , read-env-var
     , resourcet
     , rio                 >=0.1.16.0
@@ -109,6 +113,7 @@ library
   other-modules:    Paths_name_update
   hs-source-dirs:   lib
   default-language: Haskell2010
+  ghc-options:      -fplugin=Polysemy.Plugin
 
 executable name-update-2434
   import:           common-options
@@ -120,17 +125,19 @@ executable name-update-2434
     , aeson
     , base          >=4.7      && <5
     , name-update
+    , polysemy
     , read-env-var
     , rio           >=0.1.16.0
 
 test-suite unit
-  import:             common-options
-  type:               exitcode-stdio-1.0
-  hs-source-dirs:     test/unit
+  import:         common-options
+  type:           exitcode-stdio-1.0
+  hs-source-dirs: test/unit
 
   -- cabal-fmt: expand test/unit -Spec -Doctests
-  other-modules:      NNU.App.TwitterBotSpec
-  main-is:            Spec.hs
+  other-modules:  NNU.App.TwitterBotSpec
+  main-is:        Spec.hs
+
   -- build-tool-depends: hspec-discover:hspec-discover -any
 
   if impl(ghc >=8.4)
@@ -148,6 +155,7 @@ test-suite unit
     , hspec-core
     , method
     , name-update
+    , polysemy
     , QuickCheck
     , rio              >=0.1.16.0
     , rio-orphans
@@ -175,13 +183,14 @@ test-suite doctests
     ghc-options: -Wno-missing-deriving-strategies
 
 test-suite aws-local-test
-  import:             common-options
-  type:               exitcode-stdio-1.0
-  hs-source-dirs:     test/aws
+  import:         common-options
+  type:           exitcode-stdio-1.0
+  hs-source-dirs: test/aws
 
   -- cabal-fmt: expand test/aws -Spec
-  other-modules:      NNU.App.TwitterBotSpec
-  main-is:            Spec.hs
+  other-modules:  NNU.App.TwitterBotSpec
+  main-is:        Spec.hs
+
   -- build-tool-depends: hspec-discover:hspec-discover -any
 
   if impl(ghc >=8.4)
@@ -199,22 +208,10 @@ test-suite aws-local-test
     , hspec-core
     , method
     , name-update
+    , polysemy
     , QuickCheck
     , rio              >=0.1.16.0
     , rio-orphans
     , safe-exceptions
     , twitter-conduit  ^>=0.6.0
     , twitter-types
-
--- executable test
---   import:           common-options
---   main-is:          Test.hs
---   other-modules:    Paths_name_update
---   hs-source-dirs:   app
---   default-language: Haskell2010
---   build-depends:
---     , base          >=4.7      && <5
---     , generic-lens
---     , name-update
---     , rio           >=0.1.16.0
---     , rio-orphans

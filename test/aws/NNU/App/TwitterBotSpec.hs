@@ -4,23 +4,29 @@ module NNU.App.TwitterBotSpec (
   spec,
 ) where
 
-import Control.Exception.Safe (MonadCatch)
+import Polysemy
+import qualified Polysemy.Error as Polysemy
+import qualified Polysemy.Reader as Polysemy
+import qualified Polysemy.State as Polysemy
+
 import qualified Data.Aeson as J
-import Data.Dynamic (
-  fromDynamic,
-  toDyn,
- )
+import Data.Data (eqT)
 import Data.Generics.Product (HasAny (the))
-import Data.Typeable (
-  typeOf,
-  typeRep,
- )
-import RIO hiding (when)
+import Data.Typeable (type (:~:) (Refl))
+import RIO hiding (logError, when)
 import qualified RIO.HashMap as HM
 import qualified RIO.Map as M
 import qualified RIO.Map as Map
+import RIO.Orphans
+import RIO.Partial (toEnum)
 import qualified RIO.Partial as Partial
 import qualified RIO.Text as T
+import RIO.Time (
+  TimeZone (TimeZone),
+  UTCTime (UTCTime),
+  ZonedTime,
+  utcToZonedTime,
+ )
 import Test.Hspec
 import Web.Twitter.Conduit.Request.Internal (
   rawParam,
@@ -28,64 +34,39 @@ import Web.Twitter.Conduit.Request.Internal (
 
 import NNU.App.TwitterBot (
   AppConfig (..),
-  AppState (..),
-  HasAppConfig (..),
-  HasAppState (..),
   LoopConfig (..),
-  mainLoop,
-  newAppState,
  )
-import qualified NNU.Handler.Db as Db
-import qualified NNU.Handler.Db.Impl as DbImpl
-import qualified NNU.Handler.Twitter as Twitter
-import NNU.Logger (
-  LogFunc',
-  LogItem,
-  mkLogFunc',
- )
+import qualified NNU.App.TwitterBot as Bot
+import qualified NNU.Effect.Db as Db
+import qualified NNU.Effect.Db.DynamoDbImpl as DynamoDb
+import qualified NNU.Effect.Log as Log
+import qualified NNU.Effect.Twitter as Twitter
 import NNU.Nijisanji (
   Group (..),
   GroupName (Other),
-  Member (Member),
  )
-import NNU.Prelude
+import qualified NNU.Nijisanji as NNU
+import NNU.Prelude (when)
+import qualified NNU.Prelude
 
 -------------------------------------------------------------------------------
 -- Mock
 
-data MockEnv = MockEnv
-  { appConfig :: AppConfig
-  , appState :: AppState
-  , logFunc :: LogFunc'
-  , twitter :: Twitter.Handler (RIO MockEnv)
-  , db :: Db.Handler (RIO MockEnv)
-  , dbState :: IORef MockDbState
-  , logRecord :: IORef [J.Value]
+data ResultRecord = ResultRecord
+  { logRecord :: IORef [J.Value]
   , tweetRecord :: IORef [Text]
-  , resourceMap :: ResourceMap
+  , appState :: IORef Bot.AppState
   }
   deriving stock (Generic)
-instance HasGLogFunc MockEnv where
-  type GMsg MockEnv = LogItem
-  gLogFuncL = the @"logFunc"
-instance HasAppConfig MockEnv where
-  appConfigL = the @"appConfig"
-instance HasAppState MockEnv where
-  appStateL = the @"appState"
-instance Twitter.Has MockEnv where
-  twitterApiL = the @"twitter"
-instance Db.Has MockEnv where
-  dbL = the @"db"
-instance HasResourceMap MockEnv where
-  resourceMapL = the @ResourceMap
 
 data MockConfig = MockConfig
-  { twListsMembersResp :: [Either SomeException ListsMembersResp]
-  , twTweetResp :: [Either SomeException Twitter.Tweet]
+  { twListsMembersResp :: [Either Twitter.Error ListsMembersResp]
+  , twTweetResp :: [Either Twitter.Error Twitter.Tweet]
   , dbInitialState :: MockDbState
+  , loopConfig :: Bot.LoopConfig
   }
 
-data MockDbState = MockDbState
+newtype MockDbState = MockDbState
   { currentNameMap :: Map Text Db.UpdateCurrentNameItem
   }
 
@@ -95,106 +76,122 @@ mockDbStateFromList xs =
     Map.fromList
       [(member ^. the @"memberName", x) | x@Db.UpdateCurrentNameItem {..} <- xs]
 
-mockEnv ::
-  forall m.
-  (MonadUnliftIO m, MonadCatch m) =>
-  ResourceMap ->
-  MockConfig ->
-  m MockEnv
-mockEnv resourceMap MockConfig {..} = do
-  tweetRecord <- newIORef ([] :: [Text])
-  (logFunc, logRecord) <- mockLogFunc
-  appConfig <- mockAppConfig
-  appState <- newAppState
-  mockListsMembers <- mockSimpleAction "listsMembers" twListsMembersResp
-  mockTweet <- mockSimpleAction "tweet" twTweetResp
-  dbState <- newIORef dbInitialState
-  db <- DbImpl.defaultHandler =<< DbImpl.configLocalAwsFromEnv
-  let twitter = mockTwitterHandler mockListsMembers mockTweet tweetRecord
-      env = MockEnv {..}
-  runRIO env $ do
-    forM_ (currentNameMap dbInitialState) $ Db.invoke (the @"updateCurrentName")
-  pure env
+runApp :: ResourceMap -> MockConfig -> IO ResultRecord
+runApp resourceMap mockConfig = do
+  logRecord <- newIORef @_ @[J.Value] []
+  tweetRecord <- newIORef @_ @[Text] []
+  appState <- newIORef =<< Bot.newAppState
+  let resultRecord = ResultRecord {..}
+  dynamoConfig <- DynamoDb.configLocalAwsFromEnv
+  let appConfig = AppConfig {group = mockGroup}
+  -- Setup dbInitialState
+  forM_ (currentNameMap (dbInitialState mockConfig)) $ \nameItem -> do
+    runFinal
+      . Polysemy.embedToFinal @IO
+      . Polysemy.runReader resourceMap
+      . DynamoDb.runDynamoDb dynamoConfig
+      $ Db.updateCurrentName nameItem
+  -- Run app
+  runFinal
+    . Polysemy.embedToFinal @IO
+    . Polysemy.runReader resourceMap
+    -- mock log
+    . Polysemy.runStateIORef logRecord
+    . runLogMock
+    . throwError @String
+    -- mock tweet
+    . Polysemy.evalState (twListsMembersResp mockConfig)
+    . Polysemy.evalState (twTweetResp mockConfig)
+    . Polysemy.runStateIORef tweetRecord
+    . runTwitterMock
+    -- mock db
+    . DynamoDb.runDynamoDb dynamoConfig
+    -- application config and state
+    . Polysemy.runStateIORef appState
+    . Polysemy.runReader appConfig
+    $ Bot.app (loopConfig mockConfig)
+  pure resultRecord
 
-mockTwitterHandler ::
-  RIO MockEnv ListsMembersResp ->
-  RIO MockEnv Twitter.Tweet ->
-  IORef [Text] ->
-  Twitter.Handler (RIO MockEnv)
-mockTwitterHandler mockListsMembers mockTweet tweetRecord =
-  Twitter.Handler $ \case
-    r
-      | isListsMemberQuery r -> do
-        unsafeCoerceM' =<< mockListsMembers
-      | isTweetQuery r -> do
-        tryAny mockTweet >>= \case
-          Right tweet -> do
-            modifyIORef'
-              tweetRecord
-              (Partial.fromJust (r ^. rawParam "status") :)
-            unsafeCoerceM' tweet
-          Left e -> throwIO e
-      | otherwise -> do
-        throwString $ "mockTwitter: Unexpected request: " <> show r
+throwError ::
+  forall e r a.
+  Show e =>
+  Polysemy.Member (Embed IO) r =>
+  Sem (Polysemy.Error e ': r) a ->
+  Sem r a
+throwError action =
+  Polysemy.runError action >>= \case
+    Left e -> embed @IO $ throwIO (stringException $ show e)
+    Right a -> pure a
+
+runLogMock ::
+  Polysemy.Member (Polysemy.State [J.Value]) r =>
+  Sem (Log.Log ': r) a ->
+  Sem r a
+runLogMock = interpret $ \case
+  Log.Log _ _ msg -> Polysemy.modify' (msg :)
+
+runTwitterMock ::
+  forall r a.
+  Polysemy.Members
+    '[ Polysemy.Error String
+     , Polysemy.State [Text] -- record tweet
+     , Polysemy.State [Either Twitter.Error ListsMembersResp] -- api call response
+     , Polysemy.State [Either Twitter.Error Twitter.Tweet] -- api call response
+     ]
+    r =>
+  Sem (Twitter.Twitter ': r) a ->
+  Sem r a
+runTwitterMock = interpret $ \case
+  -- TODO Typeable が必要な時点で設計が間違っている
+  Twitter.Call_ req :: Twitter.Twitter m a0
+    | isListsMemberQuery req -> do
+      case eqT @a0 @(Either Twitter.Error ListsMembersResp) of
+        Just Refl -> mockSimpleAction @ListsMembersResp "listMembers"
+        Nothing -> unknownRequestError req
+    | isTweetQuery req -> do
+      case eqT @a0 @(Either Twitter.Error Twitter.Tweet) of
+        Just Refl -> do
+          -- ロジックに踏み込み過ぎでは？という気もするが……
+          tw <- mockSimpleAction @Twitter.Tweet "tweet"
+          when (isRight tw) do
+            Polysemy.modify' @[Text] (Partial.fromJust (req ^. rawParam "status") :)
+          pure tw
+        Nothing -> unknownRequestError req
+    | otherwise -> unknownRequestError req
   where
-    unsafeCoerceM' ::
-      forall x y n. (Typeable x, Typeable y, MonadIO n) => x -> n y
-    unsafeCoerceM' x = case fromDynamic (toDyn x) of
-      Just y -> pure y
-      Nothing ->
-        throwIO $
-          stringException $
-            "unsafeCoerce': fail to  coerce "
-              <> show (typeOf x)
-              <> " to "
-              <> show (typeRep (Proxy @y))
+    unknownRequestError :: forall apiName a0 b. Twitter.APIRequest apiName a0 -> Sem r b
+    unknownRequestError req =
+      Polysemy.throw $ "mockTwitter: Unexpected request: " <> show req
+
+    mockSimpleAction ::
+      forall x r'.
+      Polysemy.Member (Polysemy.Error String) r' =>
+      Polysemy.Member (Polysemy.State [Either Twitter.Error x]) r' =>
+      String ->
+      Sem r' (Either Twitter.Error x)
+    mockSimpleAction name = do
+      Polysemy.get @[Either Twitter.Error x] >>= \case
+        x : xs -> do
+          Polysemy.put xs
+          pure x
+        [] -> Polysemy.throw @String $ name <> " called too many times"
 
 -- Mock Operation
 -----------------
 
-getLogRecord :: MonadIO m => MockEnv -> m [J.Value]
-getLogRecord MockEnv {..} = reverse <$> readIORef logRecord
+getLogRecord :: MonadIO m => ResultRecord -> m [J.Value]
+getLogRecord ResultRecord {..} = reverse <$> readIORef logRecord
 
-getTweetRecord :: MonadIO m => MockEnv -> m [Text]
-getTweetRecord MockEnv {..} = reverse <$> readIORef tweetRecord
+getTweetRecord :: MonadIO m => ResultRecord -> m [Text]
+getTweetRecord ResultRecord {..} = reverse <$> readIORef tweetRecord
 
-getCurrentState :: MonadIO m => MockEnv -> m (Maybe (Map Text Text))
-getCurrentState MockEnv {..} = readIORef $ appState ^. the @"store"
+getCurrentState :: MonadIO m => ResultRecord -> m (Maybe (Map Text Text))
+getCurrentState ResultRecord {..} = do
+  s <- readIORef appState
+  readIORef $ s ^. the @"store"
 
 -- Mock Internal
 ----------------
-
-mockLogFunc :: MonadIO m => m (LogFunc', IORef [J.Value])
-mockLogFunc = do
-  ref <- newIORef []
-  let logFunc = mkLogFunc' $ \_level value -> do
-        case value of
-          J.Object hm
-            | Just body <- HM.lookup "body" hm ->
-              modifyIORef' ref (body :)
-          _ -> throwString "impossible"
-        pure ()
-  return (logFunc, ref)
-
-mockAppConfig :: MonadIO m => m AppConfig
-mockAppConfig = pure AppConfig {group = mockGroup}
-
-mockSimpleAction ::
-  (MonadIO m, MonadIO n) => String -> [Either SomeException a] -> m (n a)
-mockSimpleAction name xs = do
-  ref <- newIORef xs
-  pure $
-    readIORef ref >>= \case
-      [] ->
-        throwString $
-          "mockAction `"
-            <> name
-            <> "` called more than "
-            <> show (length xs)
-            <> " times"
-      y : ys -> do
-        writeIORef ref ys
-        either throwIO pure y
 
 isListsMemberQuery :: Twitter.APIRequest name r -> Bool
 isListsMemberQuery q =
@@ -217,11 +214,11 @@ mockGroup =
 mockGroupName :: GroupName
 mockGroupName = Other "mock"
 
-mockMember1 :: Member
-mockMember1 = Member mockGroupName "Yamada Taro" "t_yamada" 1
+mockMember1 :: NNU.Member
+mockMember1 = NNU.Member mockGroupName "Yamada Taro" "t_yamada" 1
 
-mockMember2 :: Member
-mockMember2 = Member mockGroupName "Tanaka Hanako" "h_tanaka" 2
+mockMember2 :: NNU.Member
+mockMember2 = NNU.Member mockGroupName "Tanaka Hanako" "h_tanaka" 2
 
 mkTwitterUser1 :: Text -> Twitter.User
 mkTwitterUser1 = Twitter.User 1
@@ -235,8 +232,8 @@ mockListId = 0
 mockListParam :: Twitter.ListParam
 mockListParam = Twitter.ListIdParam $ fromIntegral mockListId
 
-mockDbInitialState :: MockDbState
-mockDbInitialState =
+mockDbnitialState :: MockDbState
+mockDbnitialState =
   mockDbStateFromList
     [ Db.UpdateCurrentNameItem
         { member = mockMember1
@@ -257,14 +254,12 @@ type ListsMembersResp =
   Twitter.WithCursor Integer Twitter.UsersCursorKey Twitter.User
 
 spec :: ResourceMap -> Spec
-spec resource = do
-  let mockEnv' = mockEnv @IO resource
+spec resourceMap = do
+  let runApp' = runApp resourceMap
   describe "twitter name change" $ do
-    env <-
-      runIO $
-        mockEnv'
+    let mockConfig =
           MockConfig
-            { dbInitialState = mockDbInitialState
+            { dbInitialState = mockDbnitialState
             , twListsMembersResp =
                 [ Right
                     Twitter.WithCursor
@@ -292,33 +287,28 @@ spec resource = do
                       , createdAt = testTime
                       }
                 ]
+            , loopConfig = LoopConfig {loopCount = Just 2, loopDelaySec = 0}
             }
-    runIO $
-      runRIO env $
-        mainLoop
-          LoopConfig
-            { loopCount = Just 2
-            , loopDelaySec = 0
-            }
+    env <- runIO $ runApp' mockConfig
     it "is logged" $ do
       getLogRecord env
-        `shouldReturnJSON` [ J.object
-                              [ "message" J..= ("twitter name changed" :: Text)
-                              , "member" J..= ("Yamada Taro" :: Text)
-                              , "before" J..= ("Yamada Mark-Ⅱ" :: Text)
-                              , "after" J..= ("Yamada Mark-Ⅲ" :: Text)
-                              ]
-                           ]
+        `shouldReturn` [ J.object
+                          [ "message" J..= ("twitter name changed" :: Text)
+                          , "member" J..= ("Yamada Taro" :: Text)
+                          , "before" J..= ("Yamada Mark-Ⅱ" :: Text)
+                          , "after" J..= ("Yamada Mark-Ⅲ" :: Text)
+                          ]
+                       ]
     it "is tweeted" $ do
       getTweetRecord env
-        `shouldReturnJSON` [ T.unlines
-                              [ "Yamada Taro(twitter.com/t_yamada)さんが名前を変更しました"
-                              , ""
-                              , "Yamada Mark-Ⅲ"
-                              , "⇑"
-                              , "Yamada Mark-Ⅱ"
-                              ]
-                           ]
+        `shouldReturn` [ T.unlines
+                          [ "Yamada Taro(twitter.com/t_yamada)さんが名前を変更しました"
+                          , ""
+                          , "Yamada Mark-Ⅲ"
+                          , "⇑"
+                          , "Yamada Mark-Ⅱ"
+                          ]
+                       ]
     it "alters state" $ do
       getCurrentState env
         `shouldReturn` Just
@@ -326,11 +316,9 @@ spec resource = do
               [("Tanaka Hanako", "Tanaka Mark-Ⅱ"), ("Yamada Taro", "Yamada Mark-Ⅲ")]
           )
   describe "user not in list" $ do
-    env <-
-      runIO $
-        mockEnv'
+    let mockConfig =
           MockConfig
-            { dbInitialState = mockDbInitialState
+            { dbInitialState = mockDbnitialState
             , twListsMembersResp =
                 [ Right
                     Twitter.WithCursor
@@ -340,14 +328,9 @@ spec resource = do
                       }
                 ]
             , twTweetResp = []
+            , loopConfig = LoopConfig {loopCount = Just 1, loopDelaySec = 0}
             }
-    runIO $
-      runRIO env $
-        mainLoop
-          LoopConfig
-            { loopCount = Just 1
-            , loopDelaySec = 0
-            }
+    env <- runIO $ runApp' mockConfig
     it "is logged" $ do
       getLogRecord env `shouldReturn` ["Tanaka Hanako not found"]
     it "is not tweeted" $ do
@@ -356,26 +339,14 @@ spec resource = do
       getCurrentState env
         `shouldReturn` Just (M.fromList [("Yamada Taro", "Yamada Mark-Ⅱ")])
   describe "error in listsMembers response" $ do
-    env <-
-      runIO $
-        mockEnv'
+    let mockConfig =
           MockConfig
-            { dbInitialState = mockDbInitialState
-            , twListsMembersResp =
-                [ Left $
-                    SomeException $
-                      stringException
-                        "Twitter Down"
-                ]
+            { dbInitialState = mockDbnitialState
+            , twListsMembersResp = [Left (Twitter.Error "Twitter Down")]
             , twTweetResp = []
+            , loopConfig = LoopConfig {loopCount = Just 1, loopDelaySec = 0}
             }
-    runIO $
-      runRIO env $
-        mainLoop
-          LoopConfig
-            { loopCount = Just 1
-            , loopDelaySec = 0
-            }
+    env <- runIO $ runApp' mockConfig
     it "is logged" $ do
       logs <- getLogRecord env
       logs `shouldSatisfy` \case
@@ -384,11 +355,9 @@ spec resource = do
     it "is not tweeted" $ do
       getTweetRecord env `shouldReturn` []
   describe "error in first tweet post" $ do
-    env <-
-      runIO $
-        mockEnv'
+    let mockConfig =
           MockConfig
-            { dbInitialState = mockDbInitialState
+            { dbInitialState = mockDbnitialState
             , twListsMembersResp =
                 [ Right
                     Twitter.WithCursor
@@ -410,21 +379,16 @@ spec resource = do
                       }
                 ]
             , twTweetResp =
-                [ Left $ SomeException $ stringException "Twitter Down"
+                [ Left (Twitter.Error "Twitter Down")
                 , Right
                     Twitter.Tweet
                       { tweetId = 0
                       , createdAt = testTime
                       }
                 ]
+            , loopConfig = LoopConfig {loopCount = Just 2, loopDelaySec = 0}
             }
-    runIO $
-      runRIO env $
-        mainLoop
-          LoopConfig
-            { loopCount = Just 2
-            , loopDelaySec = 0
-            }
+    env <- runIO $ runApp' mockConfig
     it "is logged" $ do
       logs <- getLogRecord env
       logs `shouldSatisfy` any \case
@@ -444,11 +408,9 @@ spec resource = do
                           ]
                        ]
   describe "error in first tweet post" $ do
-    env <-
-      runIO $
-        mockEnv'
+    let mockConfig =
           MockConfig
-            { dbInitialState = mockDbInitialState
+            { dbInitialState = mockDbnitialState
             , twListsMembersResp =
                 [ Right
                     Twitter.WithCursor
@@ -479,21 +441,16 @@ spec resource = do
                       }
                 ]
             , twTweetResp =
-                [ Left $ SomeException $ stringException "Twitter Down"
+                [ Left (Twitter.Error "Twitter Down")
                 , Right
                     Twitter.Tweet
                       { tweetId = 0
                       , createdAt = testTime
                       }
                 ]
+            , loopConfig = LoopConfig {loopCount = Just 3, loopDelaySec = 0}
             }
-    runIO $
-      runRIO env $
-        mainLoop
-          LoopConfig
-            { loopCount = Just 3
-            , loopDelaySec = 0
-            }
+    env <- runIO $ runApp' mockConfig
     it "is retried in the next loop" $ do
       getTweetRecord env
         `shouldReturn` [ T.unlines
@@ -505,20 +462,10 @@ spec resource = do
                           ]
                        ]
 
-shouldReturnJSON :: (Eq a, J.ToJSON a) => IO a -> a -> Expectation
-shouldReturnJSON m expected = do
-  actual <- m
-  unless (actual == expected) $
-    expectationFailure $
-      unlines
-        ["expected: " <> encodeStr expected, " but got: " <> encodeStr actual]
-  where
-    encodeStr = T.unpack . decodeUtf8Lenient . toStrictBytes . J.encode
-
 -------------------------------------------------------------------------------
 
 testTime :: ZonedTime
-testTime = utcToZonedTime jst $ UTCTime (Partial.toEnum 0) 0
+testTime = utcToZonedTime jst $ UTCTime (toEnum 0) 0
   where
     jst =
       TimeZone
