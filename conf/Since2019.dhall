@@ -6,7 +6,7 @@ in let members =
    [
    -- Member Since2019 "童田明治"               "warabeda_meiji"  1082065005061652480
    -- , Member Since2019 "久遠千歳"               "kudou_chitose"   1081927064033185794
-   , Member Since2019 "夢月ロア"               "yuzuki_roa"      1085498064645705728
+     Member Since2019 "夢月ロア"               "yuzuki_roa"      1085498064645705728
    , Member Since2019 "郡道美玲"               "g9v9g_mirei"     1085375212575571968
    , Member Since2019 "語部紡"                 "KataribeTsumugu" 1088046328423141380
    , Member Since2019 "瀬戸美夜子"             "seto_miyako"     1088029978761977856
@@ -48,7 +48,7 @@ in let members =
    , Member Since2019 "ましろ"                 "mashiro2434"     1208326229457133568
    , Member Since2019 "奈羅花"                 "Naraka_2434"     1208326128596766720
    , Member Since2019 "フレン・E・ルスタリオ"  "furen_2434"      1221657763954057217
-   , Member Since2019 "メリッサ・キンレンカ"   "melissa_2434"    1221661362935328769
+   -- , Member Since2019 "メリッサ・キンレンカ"   "melissa_2434"    1221661362935328769
    , Member Since2019 "イブラヒム"             "honmono_ibrahim" 1221660522971463680
    , Member Since2019 "弦月藤士郎"             "1O46V"           1244254367806410753
    , Member Since2019 "甲斐田晴"               "Kaida_Haru"      1244433641251336192
@@ -69,8 +69,6 @@ in let members =
    , Member Since2019 "先斗寧"                 "ponto_nei"       1498892400110243846
    , Member Since2019 "海妹四葉"               "Yotsuha_Umise"   1498921872326807553
    , Member Since2019 "壱百満天原サロメ"       "1000000lome"     1526881736214597632
-   -- サブアカウント
-   -- , Member Since2019 "ギバさぶ郎"             "GB___2"          1250653534221033473
    ]
 in let listId = 1086023933881712640
 in Group listId members
