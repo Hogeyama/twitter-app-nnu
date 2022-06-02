@@ -111,3 +111,11 @@ start-local-dynamodb: create-docker-network
 
 stop-local-dynamodb:
 	cd ./aws/local && docker-compose stop dynamodb
+
+################################################################################
+# AWS
+################################################################################
+
+get-secret-parameters:
+	aws ssm get-parameters-by-path --with-decryption --path '/NijisanjiNameUpdate' \
+		| jq '.Parameters[] | { name: .Name, value: .Value }'

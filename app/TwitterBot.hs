@@ -40,4 +40,6 @@ main = do
             , Bot.since2019AppConfig
             ]
     Bot.runApps appConfigs
-  where logAnyError = flip withException $ Logger.error . show @SomeException
+ where
+  logAnyError :: HasCallStack => RIO Logger.LogFunc' a -> RIO Logger.LogFunc' a
+  logAnyError = flip withException $ Logger.error . show @SomeException
