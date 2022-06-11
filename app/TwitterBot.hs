@@ -11,10 +11,7 @@ import GHC.IO.Encoding (
 import qualified NNU.App.TwitterBot as Bot
 import qualified NNU.Logger as Logger
 import NNU.Prelude
-import System.ReadEnvVar (
-  lookupEnv,
-  readEnvDef,
- )
+import System.ReadEnvVar (lookupEnv)
 
 main :: IO ()
 main = do
@@ -22,7 +19,7 @@ main = do
   setFileSystemEncoding utf8
   runRIO Logger.defaultLogFunc' $
     logAnyError $ do
-      isTest <- readEnvDef "NNU_TEST" False
+      isTest <- readEnvFlag "NNU_TEST" False
       cfgTableName <-
         lookupEnv "NNU_TABLE_NAME" >>= \case
           Just t -> pure t
