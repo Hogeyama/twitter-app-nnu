@@ -95,13 +95,11 @@ library
     , errors
     , generic-lens
     , http-conduit
-    , method
     , microlens-platform
     , mtl
     , polysemy
     , polysemy-plugin
     , read-env-var
-    , resourcet
     , rio                 >=0.1.16.0
     , rio-orphans
     , safe-exceptions
@@ -149,19 +147,14 @@ test-suite unit
   build-depends:
     , aeson
     , base             >=4.7      && <5
-    , doctest
     , generic-lens
     , hspec
     , hspec-core
-    , method
     , name-update
     , polysemy
-    , QuickCheck
     , rio              >=0.1.16.0
     , rio-orphans
-    , safe-exceptions
     , twitter-conduit  ^>=0.6.0
-    , twitter-types
 
 test-suite doctests
   import:         common-options
@@ -170,10 +163,8 @@ test-suite doctests
   hs-source-dirs: test/doctests
   ghc-options:    -Wno-missing-import-lists
   build-depends:
-    , aeson
     , base         >=4.7      && <5
     , doctest
-    , name-update
     , rio          >=0.1.16.0
 
   if impl(ghc >=8.4)
@@ -202,16 +193,11 @@ test-suite aws-local-test
   build-depends:
     , aeson
     , base             >=4.7      && <5
-    , doctest
     , generic-lens
     , hspec
     , hspec-core
-    , method
     , name-update
     , polysemy
-    , QuickCheck
     , rio              >=0.1.16.0
     , rio-orphans
-    , safe-exceptions
     , twitter-conduit  ^>=0.6.0
-    , twitter-types
