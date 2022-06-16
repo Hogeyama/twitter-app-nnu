@@ -13,7 +13,7 @@ module NNU.App.TwitterBot (
   testAppConfig,
   -- for test
   AppState (..),
-  newAppState,
+  initialAppState,
 ) where
 
 import Polysemy
@@ -32,6 +32,8 @@ import NNU.Effect.Db (NnuDb)
 import qualified NNU.Effect.Db as Db
 import NNU.Effect.Log (Log)
 import qualified NNU.Effect.Log as Logger
+import NNU.Effect.Sleep (Sleep)
+import qualified NNU.Effect.Sleep as Sleep
 import NNU.Effect.Twitter (Twitter)
 import qualified NNU.Effect.Twitter as Twitter
 import qualified NNU.Nijisanji as Nnu
@@ -44,8 +46,6 @@ import NNU.Prelude hiding (
   try,
  )
 
--- TODO remove @Embed IO@
-
 -------------------------------------------------------------------------------
 -- Main
 -------------------------------------------------------------------------------
@@ -55,12 +55,20 @@ data AppConfig = AppConfig
   }
   deriving stock (Generic)
 
--- TODO remove IORef
 data AppState = AppState
-  { store :: IORef (Maybe SimpleNameMap)
-  , dbPendingItems :: IORef (Map Nnu.Member DbPendingItem)
+  { store :: Maybe SimpleNameMap
+  , dbPendingItems :: Map Nnu.Member DbPendingItem
   }
   deriving stock (Generic)
+
+instance Semigroup AppState where
+  AppState a1 b1 <> AppState a2 b2 = AppState (a1 <> a2) (b1 <> b2)
+
+instance Monoid AppState where
+  mempty = AppState mempty mempty
+
+initialAppState :: AppState
+initialAppState = mempty
 
 -- | エラーで投入できなかったアイテム
 data DbPendingItem = DbPendingItem
@@ -83,41 +91,33 @@ data DiffMember = DiffMember
 -- memberName -> current twitter name
 type SimpleNameMap = Map Text Text
 
-newAppState :: MonadIO m => m AppState
-newAppState = do
-  store <- newIORef mempty
-  dbPendingItems <- newIORef mempty
-  pure AppState {..}
-
 getDbPendigItems ::
   ( Member (State AppState) r
-  , Member (Embed IO) r
   ) =>
   Sem r (Map Nnu.Member DbPendingItem)
-getDbPendigItems = embed . readIORef =<< gets dbPendingItems
+getDbPendigItems = gets dbPendingItems
 
 updatePendingItem ::
   ( Member (State AppState) r
-  , Member (Embed IO) r
   ) =>
   Nnu.Member ->
   (DbPendingItem -> DbPendingItem) ->
   Sem r ()
 updatePendingItem member f = do
-  r <- gets dbPendingItems
-  embed $
-    modifyIORef' r $
-      Map.alter `flip` member $ \case
-        Nothing -> Just (f emptyDbPendingItem)
-        (Just dpi') -> Just (f dpi')
+  modify' $
+    the @"dbPendingItems"
+      %~ Map.alter
+        \case
+          Nothing -> Just (f emptyDbPendingItem)
+          (Just dpi') -> Just (f dpi')
+        member
 
 normalizePendingItems ::
-  Member (State AppState) r => Member (Embed IO) r => Sem r ()
+  ( Member (State AppState) r
+  ) =>
+  Sem r ()
 normalizePendingItems = do
-  r <- gets dbPendingItems
-  pendingItems <- embed $ readIORef r
-  let pendingItems' = Map.filter (/= emptyDbPendingItem) pendingItems
-  writeIORef r pendingItems'
+  modify' $ the @"dbPendingItems" %~ Map.filter (/= emptyDbPendingItem)
 
 -------------------------------------------------------------------------------
 -- Config
@@ -163,11 +163,11 @@ data LoopConfig = LoopConfig
 
 type Effs =
   '[ Reader AppConfig
-   , State AppState -- これいらないのでは
+   , State AppState
    , Log
    , Twitter
    , NnuDb
-   , Embed IO
+   , Sleep
    ]
 
 app ::
@@ -181,7 +181,7 @@ app LoopConfig {..} = assertNoError $ do
         Just n -> forM_ [1 .. n] . const
   loop $ do
     logAndIgnoreError oneLoop
-    embed $ threadDelay (loopDelaySec * 1000 * 1000) -- TODO replace with Sleep effect
+    Sleep.sleepSec loopDelaySec
   where
     assertNoError action = do
       x <-
@@ -196,12 +196,11 @@ oneLoop ::
   forall r.
   ( Member (Reader AppConfig) r
   , Member (State AppState) r
-  , Member (Embed IO) r
+  , Member (Polysemy.Error Db.Error) r
+  , Member (Polysemy.Error Twitter.Error) r
   , Member Log r
   , Member Twitter r
   , Member NnuDb r
-  , Member (Polysemy.Error Db.Error) r
-  , Member (Polysemy.Error Twitter.Error) r
   ) =>
   Sem r ()
 oneLoop = do
@@ -218,27 +217,20 @@ oneLoop = do
       Map.unionWith (\_o n -> n) store $
         Map.fromList [(Nnu.memberName member, newName) | DiffMember {..} <- p]
 
--- TODO replace with State effect
 readData ::
   forall r.
   ( Member (State AppState) r
-  , Member (Embed IO) r
   ) =>
   Sem r (Maybe SimpleNameMap)
-readData = do
-  store' <- gets store
-  embed $ readIORef store'
+readData = gets store
 
 writeData ::
   forall r.
   ( Member (State AppState) r
-  , Member (Embed IO) r
   ) =>
   SimpleNameMap ->
   Sem r ()
-writeData d = do
-  store' <- gets store
-  embed $ writeIORef store' (Just d)
+writeData d = modify' $ the @"store" .~ Just d
 
 fetchData ::
   forall r.
@@ -313,7 +305,6 @@ calcDiff oldData newData = do
 postTweet ::
   forall r.
   ( Member (State AppState) r
-  , Member (Embed IO) r
   , Member Log r
   , Member Twitter r
   , Member NnuDb r
@@ -436,7 +427,6 @@ postTweet diff@DiffMember {..}
 updateDb ::
   forall r.
   ( Member NnuDb r
-  , Member (Embed IO) r
   , Member (State AppState) r
   , Member (Polysemy.Error Twitter.Error) r
   , Member (Polysemy.Error Db.Error) r
@@ -482,8 +472,7 @@ updateDb Twitter.Tweet {..} DiffMember {..} = do
 
 retryUpdateDb ::
   forall r.
-  ( Member (Embed IO) r
-  , Member NnuDb r
+  ( Member NnuDb r
   , Member Log r
   , Member (State AppState) r
   , Member (Polysemy.Error Db.Error) r

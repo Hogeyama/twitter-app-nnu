@@ -35,11 +35,14 @@ import Web.Twitter.Conduit.Request.Internal (
 import NNU.App.TwitterBot (
   AppConfig (..),
   LoopConfig (..),
+  initialAppState,
  )
 import qualified NNU.App.TwitterBot as Bot
 import qualified NNU.Effect.Db as Db
 import qualified NNU.Effect.Db.DynamoDbImpl as DynamoDb
 import qualified NNU.Effect.Log as Log
+import NNU.Effect.Sleep (Sleep)
+import qualified NNU.Effect.Sleep as Sleep
 import qualified NNU.Effect.Twitter as Twitter
 import NNU.Nijisanji (
   Group (..),
@@ -80,7 +83,7 @@ runApp :: ResourceMap -> MockConfig -> IO ResultRecord
 runApp resourceMap mockConfig = do
   logRecord <- newIORef @_ @[J.Value] []
   tweetRecord <- newIORef @_ @[Text] []
-  appState <- newIORef =<< Bot.newAppState
+  appState <- newIORef initialAppState
   let resultRecord = ResultRecord {..}
   dynamoConfig <- DynamoDb.configLocalAwsFromEnv
   let appConfig = AppConfig {group = mockGroup}
@@ -95,6 +98,8 @@ runApp resourceMap mockConfig = do
   runFinal
     . Polysemy.embedToFinal @IO
     . Polysemy.runReader resourceMap
+    -- mock sleep
+    . runSleepMock
     -- mock log
     . Polysemy.runStateIORef logRecord
     . runLogMock
@@ -176,6 +181,10 @@ runTwitterMock = interpret $ \case
           pure x
         [] -> Polysemy.throw @String $ name <> " called too many times"
 
+runSleepMock :: Sem (Sleep ': r) a -> Sem r a
+runSleepMock = interpret $ \case
+  Sleep.SleepSec _ -> pure ()
+
 -- Mock Operation
 -----------------
 
@@ -188,7 +197,7 @@ getTweetRecord ResultRecord {..} = reverse <$> readIORef tweetRecord
 getCurrentState :: MonadIO m => ResultRecord -> m (Maybe (Map Text Text))
 getCurrentState ResultRecord {..} = do
   s <- readIORef appState
-  readIORef $ s ^. the @"store"
+  pure $ s ^. the @"store"
 
 -- Mock Internal
 ----------------

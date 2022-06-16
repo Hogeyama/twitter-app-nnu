@@ -14,12 +14,13 @@ import GHC.IO.Encoding (
 import System.ReadEnvVar (lookupEnv)
 
 import qualified Data.Aeson as J
-import NNU.App.TwitterBot (AppConfig (group))
+import NNU.App.TwitterBot (AppConfig (..), initialAppState)
 import qualified NNU.App.TwitterBot as Bot
 import qualified NNU.Effect.Db as Db
 import qualified NNU.Effect.Db.DynamoDbImpl as DynamoDb
 import qualified NNU.Effect.Log as Log
 import qualified NNU.Effect.Log.StdoutLogImpl as LogStdout
+import qualified NNU.Effect.Sleep.IO as SleepIO
 import qualified NNU.Effect.Twitter as Twitter
 import qualified NNU.Effect.Twitter.TwitterImpl as TheTwitter
 import qualified NNU.Nijisanji as NNU
@@ -56,16 +57,17 @@ main = do
   withResourceMap $ \resourceMap -> do
     forConcurrently_ configs $ \appConfig -> do
       let prefix = map toUpper $ show $ NNU.groupLabel $ group appConfig
-      state <- Bot.newAppState
       twConfig <- TheTwitter.configFromEnv prefix
+      appState <- newIORef initialAppState
       runFinal
         . Polysemy.embedToFinal @IO
         . LogStdout.runLog
         . logError @Db.Error
         . logError @Twitter.Error
         . Polysemy.runReader appConfig
-        . Polysemy.evalState state
+        . Polysemy.runStateIORef appState
         . Polysemy.runReader resourceMap
+        . SleepIO.runSleep
         . DynamoDb.runDynamoDb awsConfig
         . TheTwitter.runTwitter twConfig
         $ do

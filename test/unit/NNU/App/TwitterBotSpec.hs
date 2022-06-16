@@ -17,7 +17,7 @@ import RIO hiding (logError, when)
 import qualified RIO.HashMap as HM
 import qualified RIO.Map as M
 import qualified RIO.Map as Map
-import RIO.Orphans
+import RIO.Orphans (ResourceMap)
 import RIO.Partial (toEnum)
 import qualified RIO.Partial as Partial
 import qualified RIO.Text as T
@@ -47,6 +47,8 @@ import qualified NNU.Nijisanji as NNU
 import NNU.Prelude (when)
 import qualified NNU.Prelude
 
+import NNU.Effect.Sleep (Sleep)
+import qualified NNU.Effect.Sleep as Sleep
 import Test.Hspec
 
 -------------------------------------------------------------------------------
@@ -80,7 +82,7 @@ runApp resourceMap mockConfig = do
   dbState <- newIORef (dbInitialState mockConfig)
   logRecord <- newIORef @_ @[J.Value] []
   tweetRecord <- newIORef @_ @[Text] []
-  appState <- newIORef =<< Bot.newAppState
+  appState <- newIORef Bot.initialAppState
   let appConfig = AppConfig {group = mockGroup}
   runFinal
     . Polysemy.embedToFinal @IO
@@ -88,6 +90,8 @@ runApp resourceMap mockConfig = do
     . Polysemy.runStateIORef logRecord
     . runLogMock
     . throwError @String
+    -- mock sleep
+    . runSleepMock
     -- mock tweet
     . Polysemy.evalState (twListsMembersResp mockConfig)
     . Polysemy.evalState (twTweetResp mockConfig)
@@ -194,6 +198,10 @@ runDbMock = interpret $ \case
           cni = Db.CurrentNameItem {..}
       Polysemy.modify' $ \(MockDbState m) -> MockDbState (Map.insert memberName cni m)
 
+runSleepMock :: Sem (Sleep ': r) a -> Sem r a
+runSleepMock = interpret $ \case
+  Sleep.SleepSec _ -> pure ()
+
 -- Mock Operation
 -----------------
 
@@ -204,9 +212,7 @@ getTweetRecord :: MonadIO m => ResultRecord -> m [Text]
 getTweetRecord ResultRecord {..} = reverse <$> readIORef tweetRecord
 
 getCurrentState :: MonadIO m => ResultRecord -> m (Maybe (Map Text Text))
-getCurrentState ResultRecord {..} = do
-  s <- readIORef appState
-  readIORef $ s ^. the @"store"
+getCurrentState ResultRecord {..} = view (the @"store") <$> readIORef appState
 
 -- Mock Internal
 ----------------

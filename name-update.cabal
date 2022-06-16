@@ -77,6 +77,8 @@ library
     NNU.Effect.Db.DynamoDbImpl
     NNU.Effect.Log
     NNU.Effect.Log.StdoutLogImpl
+    NNU.Effect.Sleep
+    NNU.Effect.Sleep.IO
     NNU.Effect.Twitter
     NNU.Effect.Twitter.TwitterImpl
     NNU.Logger
@@ -163,9 +165,9 @@ test-suite doctests
   hs-source-dirs: test/doctests
   ghc-options:    -Wno-missing-import-lists
   build-depends:
-    , base         >=4.7      && <5
+    , base     >=4.7      && <5
     , doctest
-    , rio          >=0.1.16.0
+    , rio      >=0.1.16.0
 
   if impl(ghc >=8.4)
     ghc-options: -Wno-missing-export-lists

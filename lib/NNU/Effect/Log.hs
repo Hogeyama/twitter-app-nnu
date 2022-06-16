@@ -1,6 +1,5 @@
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE UndecidableInstances #-}
 
 module NNU.Effect.Log (
   Log (..),
