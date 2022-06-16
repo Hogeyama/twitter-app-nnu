@@ -144,9 +144,12 @@ testAppConfig = AppConfig {group = Nnu.testGroup}
 
 {- ORMOLU_DISABLE -}
 logAndIgnoreError ::
-  Member Log r =>
-  Member (Polysemy.Error Db.Error) r =>
-  Member (Polysemy.Error Twitter.Error) r =>
+  Members
+    '[ Log
+     , Polysemy.Error Db.Error
+     , Polysemy.Error Twitter.Error
+     ]
+    r =>
   Sem r () ->
   Sem r ()
 logAndIgnoreError m = m
@@ -194,13 +197,16 @@ app LoopConfig {..} = assertNoError $ do
 
 oneLoop ::
   forall r.
-  ( Member (Reader AppConfig) r
-  , Member (State AppState) r
-  , Member (Polysemy.Error Db.Error) r
-  , Member (Polysemy.Error Twitter.Error) r
-  , Member Log r
-  , Member Twitter r
-  , Member NnuDb r
+  ( Members
+      '[ Reader AppConfig
+       , State AppState
+       , Polysemy.Error Db.Error
+       , Polysemy.Error Twitter.Error
+       , Log
+       , Twitter
+       , NnuDb
+       ]
+      r
   ) =>
   Sem r ()
 oneLoop = do
@@ -219,14 +225,14 @@ oneLoop = do
 
 readData ::
   forall r.
-  ( Member (State AppState) r
+  ( Members '[State AppState] r
   ) =>
   Sem r (Maybe SimpleNameMap)
 readData = gets store
 
 writeData ::
   forall r.
-  ( Member (State AppState) r
+  ( Members '[State AppState] r
   ) =>
   SimpleNameMap ->
   Sem r ()
@@ -234,12 +240,16 @@ writeData d = modify' $ the @"store" .~ Just d
 
 fetchData ::
   forall r.
-  ( Member (Reader AppConfig) r
-  , Member (Polysemy.Error Twitter.Error) r
-  , Member (Polysemy.Error Db.Error) r
-  , Member Log r
-  , Member Twitter r
-  , Member NnuDb r
+  ( Members
+      '[ Reader AppConfig
+       , State AppState
+       , Polysemy.Error Db.Error
+       , Polysemy.Error Twitter.Error
+       , Log
+       , Twitter
+       , NnuDb
+       ]
+      r
   ) =>
   Sem r SimpleNameMap
 fetchData = do
@@ -285,7 +295,7 @@ fetchData = do
 
 calcDiff ::
   forall r.
-  Member (Reader AppConfig) r =>
+  Members '[Reader AppConfig] r =>
   SimpleNameMap ->
   SimpleNameMap ->
   Sem r [DiffMember]
@@ -304,12 +314,15 @@ calcDiff oldData newData = do
 -- returns whether posted or not
 postTweet ::
   forall r.
-  ( Member (State AppState) r
-  , Member Log r
-  , Member Twitter r
-  , Member NnuDb r
-  , Member (Polysemy.Error Db.Error) r
-  , Member (Polysemy.Error Twitter.Error) r
+  ( Members
+      '[ State AppState
+       , Polysemy.Error Db.Error
+       , Polysemy.Error Twitter.Error
+       , Log
+       , Twitter
+       , NnuDb
+       ]
+      r
   ) =>
   DiffMember ->
   Sem r Bool
@@ -426,10 +439,12 @@ postTweet diff@DiffMember {..}
 {-# ANN updateDb ("HLint: ignore Redundant id" :: String) #-}
 updateDb ::
   forall r.
-  ( Member NnuDb r
-  , Member (State AppState) r
-  , Member (Polysemy.Error Twitter.Error) r
-  , Member (Polysemy.Error Db.Error) r
+  ( Members
+      '[ State AppState
+       , Polysemy.Error Db.Error
+       , NnuDb
+       ]
+      r
   ) =>
   Twitter.Tweet ->
   DiffMember ->
@@ -465,18 +480,17 @@ updateDb Twitter.Tweet {..} DiffMember {..} = do
         }
 
     onException :: Sem r () -> Sem r () -> Sem r ()
-    onException m n =
-      m
-        & flip catch (\(_ :: Db.Error) -> n)
-        & flip catch (\(_ :: Twitter.Error) -> n)
+    onException m n = catch m (\(_ :: Db.Error) -> n)
 
 retryUpdateDb ::
   forall r.
-  ( Member NnuDb r
-  , Member Log r
-  , Member (State AppState) r
-  , Member (Polysemy.Error Db.Error) r
-  , Member (Polysemy.Error Twitter.Error) r
+  ( Members
+      '[ State AppState
+       , Polysemy.Error Db.Error
+       , Log
+       , NnuDb
+       ]
+      r
   ) =>
   Sem r ()
 retryUpdateDb = ignoreAnyError $ do
@@ -508,12 +522,10 @@ retryUpdateDb = ignoreAnyError $ do
           ]
 
     ignoreAnyError :: Sem r () -> Sem r ()
-    ignoreAnyError m =
-      m & flip (catch @Twitter.Error) do \_ -> pure ()
-        & flip (catch @Db.Error) do \_ -> pure ()
+    ignoreAnyError m = catch @Db.Error m do \_ -> pure ()
 
 throwingError ::
-  Member (Polysemy.Error e) r =>
+  Members '[Polysemy.Error e] r =>
   Sem r (Either e a) ->
   Sem r a
 throwingError action =
