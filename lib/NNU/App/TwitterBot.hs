@@ -1,5 +1,6 @@
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 module NNU.App.TwitterBot (
   app,
@@ -142,22 +143,6 @@ testAppConfig = AppConfig {group = Nnu.testGroup}
 -- Main loop
 -------------------------------------------------------------------------------
 
-{- ORMOLU_DISABLE -}
-logAndIgnoreError ::
-  Members
-    '[ Log
-     , Polysemy.Error Db.Error
-     , Polysemy.Error Twitter.Error
-     ]
-    r =>
-  Sem r () ->
-  Sem r ()
-logAndIgnoreError m = m
-  & flip catch do \(e1 :: Db.Error)      -> Logger.error e1
-  & flip catch do \(e2 :: Twitter.Error) -> Logger.error e2
-{- ORMOLU_ENABLE -}
-
--- TODO AppConfig とマージしてよいのでは
 data LoopConfig = LoopConfig
   { loopDelaySec :: Int
   , loopCount :: Maybe Int
@@ -173,12 +158,18 @@ type Effs =
    , Sleep
    ]
 
+-- TODO Error を union でまとめる
+newtype TwitterGetCurrentNameError = TwitterGetCurrentNameError Twitter.Error deriving newtype (A.ToJSON)
+newtype TwitterPostError = TwitterPostError Twitter.Error deriving newtype (A.ToJSON)
+newtype DbUpdateCurrentNameError = DbUpdateCurrentNameError Db.Error deriving newtype (A.ToJSON)
+newtype DbPutHistoryError = DbPutHistoryError Db.Error deriving newtype (A.ToJSON)
+
 app ::
   forall r.
   Members Effs r =>
   LoopConfig ->
   Sem r ()
-app LoopConfig {..} = assertNoError $ do
+app LoopConfig {..} = do
   let loop = case loopCount of
         Nothing -> forever
         Just n -> forM_ [1 .. n] . const
@@ -186,22 +177,27 @@ app LoopConfig {..} = assertNoError $ do
     logAndIgnoreError oneLoop
     Sleep.sleepSec loopDelaySec
   where
-    assertNoError action = do
-      x <-
-        action --
-          & Polysemy.runError @Db.Error
-          & Polysemy.runError @Twitter.Error
-      case x of
-        Right (Right ()) -> pure ()
-        _ -> error "impossible"
+    logAndIgnoreError m =
+      m
+        & logAndIgnoreError1 (Logger.info @_ @TwitterGetCurrentNameError)
+        & logAndIgnoreError1 (Logger.warn @_ @TwitterPostError)
+        & logAndIgnoreError1 (Logger.error @_ @DbUpdateCurrentNameError)
+        & logAndIgnoreError1 (Logger.error @_ @DbPutHistoryError)
+
+    logAndIgnoreError1 logger action =
+      Polysemy.runError action >>= \case
+        Right () -> pure ()
+        Left e -> logger e
 
 oneLoop ::
   forall r.
   ( Members
       '[ Reader AppConfig
        , State AppState
-       , Polysemy.Error Db.Error
-       , Polysemy.Error Twitter.Error
+       , Polysemy.Error DbUpdateCurrentNameError
+       , Polysemy.Error DbPutHistoryError
+       , Polysemy.Error TwitterPostError
+       , Polysemy.Error TwitterGetCurrentNameError
        , Log
        , Twitter
        , NnuDb
@@ -243,8 +239,8 @@ fetchData ::
   ( Members
       '[ Reader AppConfig
        , State AppState
-       , Polysemy.Error Db.Error
-       , Polysemy.Error Twitter.Error
+       , Polysemy.Error DbUpdateCurrentNameError
+       , Polysemy.Error TwitterGetCurrentNameError
        , Log
        , Twitter
        , NnuDb
@@ -262,7 +258,7 @@ fetchData = do
     fetchDataFromDb group = do
       Map.fromList
         . map (\Db.CurrentNameItem {..} -> (memberName, twitterName))
-        <$> throwingError (Db.getCurrentNamesOfGroup group)
+        <$> throwingError DbUpdateCurrentNameError (Db.getCurrentNamesOfGroup group)
 
     fetchDataFromTw :: Nnu.Group -> Sem r (Map Natural Text)
     fetchDataFromTw Nnu.Group {listId} = do
@@ -276,7 +272,7 @@ fetchData = do
         Right Twitter.WithCursor {contents = users} ->
           pure $ Map.fromList $ map (\Twitter.User {..} -> (userId, userName)) users
         Left err -> do
-          Polysemy.throw err
+          Polysemy.throw (TwitterGetCurrentNameError err)
 
     mkSimpleNameMap ::
       Ord k =>
@@ -310,14 +306,14 @@ calcDiff oldData newData = do
           _ -> []
   return updates
 
-{-# ANN postTweet ("HLint: ignore Redundant <$>" :: String) #-}
 -- returns whether posted or not
 postTweet ::
   forall r.
   ( Members
       '[ State AppState
-       , Polysemy.Error Db.Error
-       , Polysemy.Error Twitter.Error
+       , Polysemy.Error DbUpdateCurrentNameError
+       , Polysemy.Error DbPutHistoryError
+       , Polysemy.Error TwitterPostError
        , Log
        , Twitter
        , NnuDb
@@ -332,11 +328,10 @@ postTweet diff@DiffMember {..}
     Logger.error $ "possibly personal information: " <> memberName
     pure False
   | otherwise =
-    isAlreadyPosted >>= \case
-      Nothing -> tweetAndUpdateDb
-      Just reason -> justLog reason
-      & handleDbError
-      & handleTwitterError
+    handleError $
+      isAlreadyPosted >>= \case
+        Nothing -> tweetAndUpdateDb
+        Just reason -> justLog reason
   where
     tweetAndUpdateDb :: Sem r Bool
     tweetAndUpdateDb =
@@ -346,7 +341,7 @@ postTweet diff@DiffMember {..}
           Logger.debug logMsg
           pure True
         Left err ->
-          Polysemy.throw err
+          Polysemy.throw (TwitterPostError err)
 
     justLog :: Text -> Sem r Bool
     justLog reason = do
@@ -358,27 +353,35 @@ postTweet diff@DiffMember {..}
           ]
       pure True
 
-    handleDbError :: Sem r Bool -> Sem r Bool
-    handleDbError = flip (catch @Db.Error) \v -> do
-      Logger.error $
-        A.object
-          [ "message" A..= ("DB error" :: Text)
-          , "error" A..= v
-          , "original" A..= logMsg
-          ]
-      pure True
-
-    handleTwitterError :: Sem r Bool -> Sem r Bool
-    handleTwitterError = flip (catch @Twitter.Error) \v -> do
-      Logger.error $
-        A.object
-          [ "message" A..= ("tweet post failed" :: Text)
-          , "error" A..= v
-          , "original" A..= logMsg
-          ]
-      -- ツイート重複エラーのときは状態を更新してよい
-      -- XXX もう少しロバストな判定方法があればよいが……
-      pure $ "Status is a duplicate." `T.isInfixOf` tshow v
+    handleError :: Sem r Bool -> Sem r Bool
+    handleError m =
+      m
+        & catch `flip` \case DbUpdateCurrentNameError v -> handleDbUpdateError v
+        & catch `flip` \case DbPutHistoryError v -> handleDbUpdateError v
+        & catch `flip` \case TwitterPostError v -> handleTwitterPostError v
+      where
+        handleTwitterPostError v = do
+          let isTweetDuplicated = "Status is a duplicate." `T.isInfixOf` tshow v
+              log'
+                | isTweetDuplicated = Logger.warn
+                | otherwise = Logger.error
+          log' $
+            A.object
+              [ "message" A..= ("tweet post failed" :: Text)
+              , "error" A..= v
+              , "original" A..= logMsg
+              ]
+          -- ツイート重複エラーのときは状態を更新してよい。
+          -- XXX もう少しロバストな判定方法があればよいが……
+          pure isTweetDuplicated
+        handleDbUpdateError v = do
+          Logger.error $
+            A.object
+              [ "message" A..= ("DB error" :: Text)
+              , "error" A..= v
+              , "original" A..= logMsg
+              ]
+          pure True
 
     isPossiblyPersonalInformation = T.all isAscii
 
@@ -428,20 +431,22 @@ postTweet diff@DiffMember {..}
 
         isEqualToDbCurrentName :: Sem r (Either Db.Error Bool)
         isEqualToDbCurrentName = do
-          mCurrentDbName <- try (getCurrentName member)
+          mCurrentDbName <- getCurrentName member
           case mCurrentDbName of
             Right current -> pure (Right (current == newName))
             Left e -> pure (Left e)
 
-        getCurrentName :: Nnu.Member -> Sem r Text
-        getCurrentName m = view (the @"twitterName") <$> throwingError (Db.getCurrentName m)
+        getCurrentName :: Nnu.Member -> Sem r (Either Db.Error Text)
+        getCurrentName m =
+          fmap (view (the @"twitterName")) <$> Db.getCurrentName m
 
 {-# ANN updateDb ("HLint: ignore Redundant id" :: String) #-}
 updateDb ::
   forall r.
   ( Members
       '[ State AppState
-       , Polysemy.Error Db.Error
+       , Polysemy.Error DbUpdateCurrentNameError
+       , Polysemy.Error DbPutHistoryError
        , NnuDb
        ]
       r
@@ -450,7 +455,7 @@ updateDb ::
   DiffMember ->
   Sem r ()
 updateDb Twitter.Tweet {..} DiffMember {..} = do
-  throwingError (Db.updateCurrentName ucni)
+  throwingError DbUpdateCurrentNameError (Db.updateCurrentName ucni)
     `onException` do
       updatePendingItem member $
         id
@@ -459,7 +464,7 @@ updateDb Twitter.Tweet {..} DiffMember {..} = do
   updatePendingItem member $
     id
       . (the @"updateCurrentNameItem" .~ Nothing)
-  throwingError (Db.putHistory hi)
+  throwingError DbPutHistoryError (Db.putHistory hi)
     `onException` do
       updatePendingItem member $
         id
@@ -479,14 +484,20 @@ updateDb Twitter.Tweet {..} DiffMember {..} = do
         , updateTime = createdAt
         }
 
+    -- XXX 忘れるのが怖い
+    -- TODO Error を union でまとめる
     onException :: Sem r () -> Sem r () -> Sem r ()
-    onException m n = catch m (\(_ :: Db.Error) -> n)
+    onException m n =
+      m
+        & catch @DbUpdateCurrentNameError `flip` \case _ -> n
+        & catch @DbPutHistoryError `flip` \case _ -> n
 
 retryUpdateDb ::
   forall r.
   ( Members
       '[ State AppState
-       , Polysemy.Error Db.Error
+       , Polysemy.Error DbUpdateCurrentNameError
+       , Polysemy.Error DbPutHistoryError
        , Log
        , NnuDb
        ]
@@ -499,10 +510,10 @@ retryUpdateDb = ignoreAnyError $ do
   unless (Map.size pendingItems == 0) $ logCurrentPendingItems pendingItems
   forM_ (Map.toList pendingItems) $ \(member, DbPendingItem mucni his) -> do
     forM_ mucni $ \ucni -> do
-      throwingError (Db.updateCurrentName ucni)
+      throwingError DbUpdateCurrentNameError (Db.updateCurrentName ucni)
       updatePendingItem member $ the @"updateCurrentNameItem" .~ Nothing
     forM_ his $ \hi -> do
-      throwingError (Db.putHistory hi)
+      throwingError DbPutHistoryError (Db.putHistory hi)
       updatePendingItem member $ the @"historyItems" %~ Set.delete hi
   unless (Map.size pendingItems == 0) logRetryFinished
   where
@@ -521,14 +532,19 @@ retryUpdateDb = ignoreAnyError $ do
           [ "message" A..= ("All pending items successfully posted" :: Text)
           ]
 
+    -- ここも忘れるの怖い
     ignoreAnyError :: Sem r () -> Sem r ()
-    ignoreAnyError m = catch @Db.Error m do \_ -> pure ()
+    ignoreAnyError m =
+      m
+        & catch @DbUpdateCurrentNameError `flip` \case _ -> pure ()
+        & catch @DbPutHistoryError `flip` \case _ -> pure ()
 
 throwingError ::
   Members '[Polysemy.Error e] r =>
-  Sem r (Either e a) ->
+  (e' -> e) ->
+  Sem r (Either e' a) ->
   Sem r a
-throwingError action =
+throwingError wrap action =
   action >>= \case
     Right x -> pure x
-    Left err -> Polysemy.throw err
+    Left err -> Polysemy.throw (wrap err)
