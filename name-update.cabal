@@ -81,7 +81,6 @@ library
     NNU.Effect.Sleep.IO
     NNU.Effect.Twitter
     NNU.Effect.Twitter.TwitterImpl
-    NNU.Logger
     NNU.Nijisanji
     NNU.Prelude
     NNU.TH
@@ -96,7 +95,6 @@ library
     , dhall               >=1.24.0
     , errors
     , generic-lens
-    , http-conduit
     , microlens-platform
     , mtl
     , polysemy
