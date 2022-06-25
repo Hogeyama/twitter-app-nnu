@@ -1,0 +1,37 @@
+TableName: "NNU_DEVELOP"
+AttributeDefinitions:
+  - AttributeName: Group
+    AttributeType: S
+  - AttributeName: PK
+    AttributeType: S
+  - AttributeName: SK
+    AttributeType: S
+KeySchema:
+  - AttributeName: PK
+    KeyType: HASH
+  - AttributeName: SK
+    KeyType: RANGE
+GlobalSecondaryIndexes:
+  - IndexName: "CURRENT_NAME-index"
+    KeySchema:
+      - AttributeName: SK
+        KeyType: HASH
+      - AttributeName: Group
+        KeyType: RANGE
+    Projection:
+      ProjectionType: ALL
+    ProvisionedThroughput:
+      ReadCapacityUnits: 1
+      WriteCapacityUnits: 1
+ProvisionedThroughput:
+  ReadCapacityUnits: 1
+  WriteCapacityUnits: 1
+SSESpecification:
+  Enabled: true
+Tags:
+  - Key: "Environment"
+    Value: "Development"
+#             | PK              | SK                              | Name       | other |
+# CurrentName | Member#月ノ美兎 | Current                         | 月ノ美兎🐰 | 2021-07-03T23:20:00.123(Time) |
+# History     | Member#月ノ美兎 | History#2021-07-03T23:20:00.123 | 月ノ美兎🐰 | 1234...(TweetId) |
+# History     | Member#月ノ美兎 | History#2021-07-02T22:10:00.233 | 月ノ美兎   | 1233...(TweetId) |

@@ -1,6 +1,6 @@
 cabal-version: 2.4
 name:          name-update
-version:       0.3.0.0
+version:       0.3.1.0
 license:       BSD-3-Clause
 license-file:  LICENSE
 build-type:    Custom
@@ -73,11 +73,14 @@ library
   -- cabal-fmt: expand ./lib
   exposed-modules:
     NNU.App.TwitterBot
-    NNU.Handler.Db
-    NNU.Handler.Db.Impl
-    NNU.Handler.Twitter
-    NNU.Handler.Twitter.Impl
-    NNU.Logger
+    NNU.Effect.Db
+    NNU.Effect.Db.DynamoDbImpl
+    NNU.Effect.Log
+    NNU.Effect.Log.StdoutLogImpl
+    NNU.Effect.Sleep
+    NNU.Effect.Sleep.IO
+    NNU.Effect.Twitter
+    NNU.Effect.Twitter.TwitterImpl
     NNU.Nijisanji
     NNU.Prelude
     NNU.TH
@@ -92,12 +95,11 @@ library
     , dhall               >=1.24.0
     , errors
     , generic-lens
-    , http-conduit
-    , method
     , microlens-platform
     , mtl
+    , polysemy
+    , polysemy-plugin
     , read-env-var
-    , resourcet
     , rio                 >=0.1.16.0
     , rio-orphans
     , safe-exceptions
@@ -109,6 +111,7 @@ library
   other-modules:    Paths_name_update
   hs-source-dirs:   lib
   default-language: Haskell2010
+  ghc-options:      -fplugin=Polysemy.Plugin
 
 executable name-update-2434
   import:           common-options
@@ -120,17 +123,19 @@ executable name-update-2434
     , aeson
     , base          >=4.7      && <5
     , name-update
+    , polysemy
     , read-env-var
     , rio           >=0.1.16.0
 
 test-suite unit
-  import:             common-options
-  type:               exitcode-stdio-1.0
-  hs-source-dirs:     test/unit
+  import:         common-options
+  type:           exitcode-stdio-1.0
+  hs-source-dirs: test/unit
 
   -- cabal-fmt: expand test/unit -Spec -Doctests
-  other-modules:      NNU.App.TwitterBotSpec
-  main-is:            Spec.hs
+  other-modules:  NNU.App.TwitterBotSpec
+  main-is:        Spec.hs
+
   -- build-tool-depends: hspec-discover:hspec-discover -any
 
   if impl(ghc >=8.4)
@@ -142,18 +147,14 @@ test-suite unit
   build-depends:
     , aeson
     , base             >=4.7      && <5
-    , doctest
     , generic-lens
     , hspec
     , hspec-core
-    , method
     , name-update
-    , QuickCheck
+    , polysemy
     , rio              >=0.1.16.0
     , rio-orphans
-    , safe-exceptions
     , twitter-conduit  ^>=0.6.0
-    , twitter-types
 
 test-suite doctests
   import:         common-options
@@ -162,11 +163,9 @@ test-suite doctests
   hs-source-dirs: test/doctests
   ghc-options:    -Wno-missing-import-lists
   build-depends:
-    , aeson
-    , base         >=4.7      && <5
+    , base     >=4.7      && <5
     , doctest
-    , name-update
-    , rio          >=0.1.16.0
+    , rio      >=0.1.16.0
 
   if impl(ghc >=8.4)
     ghc-options: -Wno-missing-export-lists
@@ -175,13 +174,14 @@ test-suite doctests
     ghc-options: -Wno-missing-deriving-strategies
 
 test-suite aws-local-test
-  import:             common-options
-  type:               exitcode-stdio-1.0
-  hs-source-dirs:     test/aws
+  import:         common-options
+  type:           exitcode-stdio-1.0
+  hs-source-dirs: test/aws
 
   -- cabal-fmt: expand test/aws -Spec
-  other-modules:      NNU.App.TwitterBotSpec
-  main-is:            Spec.hs
+  other-modules:  NNU.App.TwitterBotSpec
+  main-is:        Spec.hs
+
   -- build-tool-depends: hspec-discover:hspec-discover -any
 
   if impl(ghc >=8.4)
@@ -193,28 +193,11 @@ test-suite aws-local-test
   build-depends:
     , aeson
     , base             >=4.7      && <5
-    , doctest
     , generic-lens
     , hspec
     , hspec-core
-    , method
     , name-update
-    , QuickCheck
+    , polysemy
     , rio              >=0.1.16.0
     , rio-orphans
-    , safe-exceptions
     , twitter-conduit  ^>=0.6.0
-    , twitter-types
-
--- executable test
---   import:           common-options
---   main-is:          Test.hs
---   other-modules:    Paths_name_update
---   hs-source-dirs:   app
---   default-language: Haskell2010
---   build-depends:
---     , base          >=4.7      && <5
---     , generic-lens
---     , name-update
---     , rio           >=0.1.16.0
---     , rio-orphans

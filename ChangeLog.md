@@ -1,4 +1,8 @@
 
+# 0.3.1.0
+
+* Use polysemy
+
 # 0.3.0.0
 
 * Use DynamoDB as master DB
