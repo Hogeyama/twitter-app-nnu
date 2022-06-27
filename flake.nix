@@ -2,7 +2,7 @@
   description = "TODO";
 
   inputs = {
-    nixpkgs.url = "github:nixos/nixpkgs/master";
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils/master";
     flake-compat = {
       url = github:edolstra/flake-compat;
@@ -12,7 +12,7 @@
 
   outputs = { self, nixpkgs, flake-utils, ... }:
     let
-      compiler = "ghc8107";
+      compiler = "ghc923";
       supportedSystems = [ "x86_64-linux" ];
 
       outputs-overlay = pkgs: prev: {
