@@ -69,6 +69,10 @@ in let members =
    , Member Since2019 "先斗寧"                 "ponto_nei"       1498892400110243846
    , Member Since2019 "海妹四葉"               "Yotsuha_Umise"   1498921872326807553
    , Member Since2019 "壱百満天原サロメ"       "1000000lome"     1526881736214597632
+   , Member Since2019 "風楽奏斗"               "KNTFR2434"       1532513750921510913
+   , Member Since2019 "渡会雲雀"               "watarai_hibari"  1532517970882490368
+   , Member Since2019 "セラフ・ダズルガーデン" "SerAph_DazZ"     1541711285368238080
+   , Member Since2019 "四季凪アキラ"           "Shikinagi_2434"  1542050205126000640
    ]
 in let listId = 1086023933881712640
 in Group listId members
