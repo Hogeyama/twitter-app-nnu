@@ -23,8 +23,8 @@ let
   drv = myPkg.overrideAttrs (old: {
     checkPhase = ''
       set -eu
-      dist/build/unit/unit
-      dist/build/doctests/doctests
+      dist/build/unit-test/unit-test
+      dist/build/doctest/doctest
     '';
 
     installPhase = old.installPhase or "" + ''

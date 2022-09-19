@@ -16,8 +16,8 @@ test: test-docker test-no-docker
 .PHONY: test
 
 test-no-docker:
-	cabal run unit
-	cabal run doctests
+	cabal run unit-test
+	cabal run doctest
 .PHONY: test-no-docker
 
 test-docker: export NNU_USE_LOCAL_AWS=1
@@ -26,7 +26,7 @@ test-docker:
 	docker compose down
 	docker compose up -d dynamodb
 	./scripts/setup-local-dynamodb.bash >/dev/null
-	cabal run aws-local-test || ( docker compose down && exit 1 )
+	cabal run aws-integration-test || ( docker compose down && exit 1 )
 	docker compose down
 .PHONY: test-docker
 
