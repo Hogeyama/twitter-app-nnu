@@ -55,6 +55,15 @@ main = do
           }
   awsConfig <- DynamoDb.configGlobalAwsFromEnv
   withResourceMap $ \resourceMap -> do
+    runFinal
+      . Polysemy.embedToFinal @IO
+      . LogStdout.runLog
+      $ Log.info $
+        J.object
+          [ "msg" J..= ("NNU on AWS has started" :: Text)
+          , "is_test" J..= isTest
+          , "NNU_TABLE_NAME" J..= (cfgTableName :: Text)
+          ]
     forConcurrently_ configs $ \appConfig -> do
       let prefix = map toUpper $ show $ NNU.groupLabel $ group appConfig
       twConfig <- TheTwitter.configFromEnv prefix
@@ -70,14 +79,7 @@ main = do
         . SleepIO.runSleep
         . DynamoDb.runDynamoDb awsConfig
         . TheTwitter.runTwitter twConfig
-        $ do
-          Log.info $
-            J.object
-              [ "msg" J..= ("NNU on AWS has started" :: Text)
-              , "is_test" J..= isTest
-              , "NNU_TABLE_NAME" J..= (cfgTableName :: Text)
-              ]
-          Bot.app loopConfig
+        $ Bot.app loopConfig
 
 logError ::
   forall e r.

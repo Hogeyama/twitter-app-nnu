@@ -262,12 +262,12 @@ fetchData = do
 
     fetchDataFromTw :: Nnu.Group -> Sem r (Map Natural Text)
     fetchDataFromTw Nnu.Group {listId} = do
-      let listParam = Twitter.ListIdParam $ fromIntegral listId
-      res <- do
-        let param = Twitter.listsMembers listParam & #count ?~ 1000
-        Twitter.call' @_
-          @(Twitter.WithCursor Integer Twitter.UsersCursorKey Twitter.User)
-          param
+      res <-
+        Twitter.listsMembers
+          Twitter.ListsMembersParam
+            { listId = listId
+            , count = Just 1000
+            }
       case res of
         Right Twitter.WithCursor {contents = users} ->
           pure $ Map.fromList $ map (\Twitter.User {..} -> (userId, userName)) users
@@ -451,10 +451,10 @@ updateDb ::
        ]
       r
   ) =>
-  Twitter.Tweet ->
+  Twitter.TweetResp ->
   DiffMember ->
   Sem r ()
-updateDb Twitter.Tweet {..} DiffMember {..} = do
+updateDb Twitter.TweetResp {..} DiffMember {..} = do
   throwingError DbUpdateCurrentNameError (Db.updateCurrentName ucni)
     `onException` do
       updatePendingItem member $

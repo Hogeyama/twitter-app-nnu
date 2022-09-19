@@ -10,9 +10,7 @@ import qualified Polysemy.Reader as Polysemy
 import qualified Polysemy.State as Polysemy
 
 import qualified Data.Aeson as J
-import Data.Data (eqT)
 import Data.Generics.Product (HasAny (the))
-import Data.Typeable (type (:~:) (Refl))
 import RIO hiding (logError, when)
 import qualified RIO.HashMap as HM
 import qualified RIO.Map as M
@@ -27,9 +25,7 @@ import RIO.Time (
   ZonedTime,
   utcToZonedTime,
  )
-import Web.Twitter.Conduit.Request.Internal (
-  rawParam,
- )
+import qualified Web.Twitter.Conduit as OrigTwitter
 
 import NNU.App.TwitterBot (
   AppConfig (..),
@@ -44,12 +40,12 @@ import NNU.Nijisanji (
   GroupName (Other),
  )
 import qualified NNU.Nijisanji as NNU
-import NNU.Prelude (when)
 import qualified NNU.Prelude
 
 import NNU.Effect.Sleep (Sleep)
 import qualified NNU.Effect.Sleep as Sleep
 import Test.Hspec
+import NNU.Prelude (when)
 
 -------------------------------------------------------------------------------
 -- Mock
@@ -63,8 +59,8 @@ data ResultRecord = ResultRecord
   deriving stock (Generic)
 
 data MockConfig = MockConfig
-  { twListsMembersResp :: [Either Twitter.Error ListsMembersResp]
-  , twTweetResp :: [Either Twitter.Error Twitter.Tweet]
+  { twListsMembersResp :: [Either Twitter.Error Twitter.ListsMembersResp]
+  , twTweetResp :: [Either Twitter.Error Twitter.TweetResp]
   , dbInitialState :: MockDbState
   , loopConfig :: Bot.LoopConfig
   }
@@ -130,34 +126,21 @@ runTwitterMock ::
   Polysemy.Members
     '[ Polysemy.Error String
      , Polysemy.State [Text] -- record tweet
-     , Polysemy.State [Either Twitter.Error ListsMembersResp] -- api call response
-     , Polysemy.State [Either Twitter.Error Twitter.Tweet] -- api call response
+     , Polysemy.State [Either Twitter.Error Twitter.ListsMembersResp] -- api call response
+     , Polysemy.State [Either Twitter.Error Twitter.TweetResp] -- api call response
      ]
     r =>
   Sem (Twitter.Twitter ': r) a ->
   Sem r a
 runTwitterMock = interpret $ \case
-  -- TODO Typeable が必要な時点で設計が間違っている
-  Twitter.Call_ req :: Twitter.Twitter m a0
-    | isListsMemberQuery req -> do
-      case eqT @a0 @(Either Twitter.Error ListsMembersResp) of
-        Just Refl -> mockSimpleAction @ListsMembersResp "listMembers"
-        Nothing -> unknownRequestError req
-    | isTweetQuery req -> do
-      case eqT @a0 @(Either Twitter.Error Twitter.Tweet) of
-        Just Refl -> do
-          -- ロジックに踏み込み過ぎでは？という気もするが……
-          tw <- mockSimpleAction @Twitter.Tweet "tweet"
-          when (isRight tw) do
-            Polysemy.modify' @[Text] (Partial.fromJust (req ^. rawParam "status") :)
-          pure tw
-        Nothing -> unknownRequestError req
-    | otherwise -> unknownRequestError req
+  Twitter.ListsMembers _ -> do
+    mockSimpleAction @Twitter.ListsMembersResp "listMembers"
+  Twitter.Tweet body -> do
+    tw <- mockSimpleAction @Twitter.TweetResp "tweet"
+    when (isRight tw) do
+      Polysemy.modify' @[Text] (body :)
+    pure tw
   where
-    unknownRequestError :: forall apiName a0 b. Twitter.APIRequest apiName a0 -> Sem r b
-    unknownRequestError req =
-      Polysemy.throw $ "mockTwitter: Unexpected request: " <> show req
-
     mockSimpleAction ::
       forall x r'.
       Polysemy.Member (Polysemy.Error String) r' =>
@@ -214,16 +197,6 @@ getTweetRecord ResultRecord {..} = reverse <$> readIORef tweetRecord
 getCurrentState :: MonadIO m => ResultRecord -> m (Maybe (Map Text Text))
 getCurrentState ResultRecord {..} = view (the @"store") <$> readIORef appState
 
--- Mock Internal
-----------------
-
-isListsMemberQuery :: Twitter.APIRequest name r -> Bool
-isListsMemberQuery q =
-  Twitter._url q == Twitter._url (Twitter.listsMembers mockListParam)
-
-isTweetQuery :: Twitter.APIRequest name r -> Bool
-isTweetQuery q = Twitter._url q == Twitter._url (Twitter.statusesUpdate "")
-
 -- Mock Data
 ----------------
 
@@ -250,12 +223,6 @@ mkTwitterUser1 = Twitter.User 1
 mkTwitterUser2 :: Text -> Twitter.User
 mkTwitterUser2 = Twitter.User 2
 
-mockListId :: Natural
-mockListId = 0
-
-mockListParam :: Twitter.ListParam
-mockListParam = Twitter.ListIdParam $ fromIntegral mockListId
-
 mockDbnitialState :: MockDbState
 mockDbnitialState =
   mockDbStateFromList
@@ -273,9 +240,6 @@ mockDbnitialState =
 
 -------------------------------------------------------------------------------
 -- Spec
-
-type ListsMembersResp =
-  Twitter.WithCursor Integer Twitter.UsersCursorKey Twitter.User
 
 spec :: ResourceMap -> Spec
 spec resourceMap = do
@@ -306,7 +270,7 @@ spec resourceMap = do
                 ]
             , twTweetResp =
                 [ Right
-                    Twitter.Tweet
+                    Twitter.TweetResp
                       { tweetId = 0
                       , createdAt = testTime
                       }
@@ -405,7 +369,7 @@ spec resourceMap = do
             , twTweetResp =
                 [ Left (Twitter.Error "Twitter Down")
                 , Right
-                    Twitter.Tweet
+                    Twitter.TweetResp
                       { tweetId = 0
                       , createdAt = testTime
                       }
@@ -467,7 +431,7 @@ spec resourceMap = do
             , twTweetResp =
                 [ Left (Twitter.Error "Twitter Down")
                 , Right
-                    Twitter.Tweet
+                    Twitter.TweetResp
                       { tweetId = 0
                       , createdAt = testTime
                       }

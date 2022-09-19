@@ -10,16 +10,12 @@ import qualified Polysemy.Reader as Polysemy
 import qualified Polysemy.State as Polysemy
 
 import qualified Data.Aeson as J
-import Data.Data (eqT)
 import Data.Generics.Product (HasAny (the))
-import Data.Typeable (type (:~:) (Refl))
 import RIO hiding (logError, when)
-import qualified RIO.HashMap as HM
 import qualified RIO.Map as M
 import qualified RIO.Map as Map
 import RIO.Orphans
 import RIO.Partial (toEnum)
-import qualified RIO.Partial as Partial
 import qualified RIO.Text as T
 import RIO.Time (
   TimeZone (TimeZone),
@@ -28,9 +24,7 @@ import RIO.Time (
   utcToZonedTime,
  )
 import Test.Hspec
-import Web.Twitter.Conduit.Request.Internal (
-  rawParam,
- )
+import qualified Web.Twitter.Conduit as OrigTwitter
 
 import NNU.App.TwitterBot (
   AppConfig (..),
@@ -63,8 +57,8 @@ data ResultRecord = ResultRecord
   deriving stock (Generic)
 
 data MockConfig = MockConfig
-  { twListsMembersResp :: [Either Twitter.Error ListsMembersResp]
-  , twTweetResp :: [Either Twitter.Error Twitter.Tweet]
+  { twListsMembersResp :: [Either Twitter.Error Twitter.ListsMembersResp]
+  , twTweetResp :: [Either Twitter.Error Twitter.TweetResp]
   , dbInitialState :: MockDbState
   , loopConfig :: Bot.LoopConfig
   }
@@ -141,33 +135,20 @@ runTwitterMock ::
     '[ Polysemy.Error String
      , Polysemy.State [Text] -- record tweet
      , Polysemy.State [Either Twitter.Error ListsMembersResp] -- api call response
-     , Polysemy.State [Either Twitter.Error Twitter.Tweet] -- api call response
+     , Polysemy.State [Either Twitter.Error Twitter.TweetResp] -- api call response
      ]
     r =>
   Sem (Twitter.Twitter ': r) a ->
   Sem r a
 runTwitterMock = interpret $ \case
-  -- TODO Typeable が必要な時点で設計が間違っている
-  Twitter.Call_ req :: Twitter.Twitter m a0
-    | isListsMemberQuery req -> do
-      case eqT @a0 @(Either Twitter.Error ListsMembersResp) of
-        Just Refl -> mockSimpleAction @ListsMembersResp "listMembers"
-        Nothing -> unknownRequestError req
-    | isTweetQuery req -> do
-      case eqT @a0 @(Either Twitter.Error Twitter.Tweet) of
-        Just Refl -> do
-          -- ロジックに踏み込み過ぎでは？という気もするが……
-          tw <- mockSimpleAction @Twitter.Tweet "tweet"
-          when (isRight tw) do
-            Polysemy.modify' @[Text] (Partial.fromJust (req ^. rawParam "status") :)
-          pure tw
-        Nothing -> unknownRequestError req
-    | otherwise -> unknownRequestError req
+  Twitter.ListsMembers _ -> do
+    mockSimpleAction @Twitter.ListsMembersResp "listMembers"
+  Twitter.Tweet body -> do
+    tw <- mockSimpleAction @Twitter.TweetResp "tweet"
+    when (isRight tw) do
+      Polysemy.modify' @[Text] (body :)
+    pure tw
   where
-    unknownRequestError :: forall apiName a0 b. Twitter.APIRequest apiName a0 -> Sem r b
-    unknownRequestError req =
-      Polysemy.throw $ "mockTwitter: Unexpected request: " <> show req
-
     mockSimpleAction ::
       forall x r'.
       Polysemy.Member (Polysemy.Error String) r' =>
@@ -199,16 +180,6 @@ getCurrentState ResultRecord {..} = do
   s <- readIORef appState
   pure $ s ^. the @"store"
 
--- Mock Internal
-----------------
-
-isListsMemberQuery :: Twitter.APIRequest name r -> Bool
-isListsMemberQuery q =
-  Twitter._url q == Twitter._url (Twitter.listsMembers mockListParam)
-
-isTweetQuery :: Twitter.APIRequest name r -> Bool
-isTweetQuery q = Twitter._url q == Twitter._url (Twitter.statusesUpdate "")
-
 -- Mock Data
 ----------------
 
@@ -235,14 +206,8 @@ mkTwitterUser1 = Twitter.User 1
 mkTwitterUser2 :: Text -> Twitter.User
 mkTwitterUser2 = Twitter.User 2
 
-mockListId :: Natural
-mockListId = 0
-
-mockListParam :: Twitter.ListParam
-mockListParam = Twitter.ListIdParam $ fromIntegral mockListId
-
-mockDbnitialState :: MockDbState
-mockDbnitialState =
+mockDbInitialState :: MockDbState
+mockDbInitialState =
   mockDbStateFromList
     [ Db.UpdateCurrentNameItem
         { member = mockMember1
@@ -268,7 +233,7 @@ spec resourceMap = do
   describe "twitter name change" $ do
     let mockConfig =
           MockConfig
-            { dbInitialState = mockDbnitialState
+            { dbInitialState = mockDbInitialState
             , twListsMembersResp =
                 [ Right
                     Twitter.WithCursor
@@ -291,7 +256,7 @@ spec resourceMap = do
                 ]
             , twTweetResp =
                 [ Right
-                    Twitter.Tweet
+                    Twitter.TweetResp
                       { tweetId = 0
                       , createdAt = testTime
                       }
@@ -324,152 +289,6 @@ spec resourceMap = do
           ( M.fromList
               [("Tanaka Hanako", "Tanaka Mark-Ⅱ"), ("Yamada Taro", "Yamada Mark-Ⅲ")]
           )
-  describe "user not in list" $ do
-    let mockConfig =
-          MockConfig
-            { dbInitialState = mockDbnitialState
-            , twListsMembersResp =
-                [ Right
-                    Twitter.WithCursor
-                      { nextCursor = Nothing
-                      , previousCursor = Nothing
-                      , contents = [mkTwitterUser1 "Yamada Mark-Ⅱ"]
-                      }
-                ]
-            , twTweetResp = []
-            , loopConfig = LoopConfig {loopCount = Just 1, loopDelaySec = 0}
-            }
-    env <- runIO $ runApp' mockConfig
-    it "is logged" $ do
-      getLogRecord env `shouldReturn` ["Tanaka Hanako not found"]
-    it "is not tweeted" $ do
-      getTweetRecord env `shouldReturn` []
-    it "alters state" $ do
-      getCurrentState env
-        `shouldReturn` Just (M.fromList [("Yamada Taro", "Yamada Mark-Ⅱ")])
-  describe "error in listsMembers response" $ do
-    let mockConfig =
-          MockConfig
-            { dbInitialState = mockDbnitialState
-            , twListsMembersResp = [Left (Twitter.Error "Twitter Down")]
-            , twTweetResp = []
-            , loopConfig = LoopConfig {loopCount = Just 1, loopDelaySec = 0}
-            }
-    env <- runIO $ runApp' mockConfig
-    it "is logged" $ do
-      logs <- getLogRecord env
-      logs `shouldSatisfy` \case
-        [J.String e] -> "Twitter Down" `T.isInfixOf` e
-        _ -> False
-    it "is not tweeted" $ do
-      getTweetRecord env `shouldReturn` []
-  describe "error in first tweet post" $ do
-    let mockConfig =
-          MockConfig
-            { dbInitialState = mockDbnitialState
-            , twListsMembersResp =
-                [ Right
-                    Twitter.WithCursor
-                      { nextCursor = Nothing
-                      , previousCursor = Nothing
-                      , contents =
-                          [ mkTwitterUser1 "Yamada Mark-Ⅱ"
-                          , mkTwitterUser2 "Tanaka Mark-Ⅱ"
-                          ]
-                      }
-                , Right
-                    Twitter.WithCursor
-                      { nextCursor = Nothing
-                      , previousCursor = Nothing
-                      , contents =
-                          [ mkTwitterUser1 "Yamada Mark-Ⅲ"
-                          , mkTwitterUser2 "Tanaka Mark-Ⅲ"
-                          ]
-                      }
-                ]
-            , twTweetResp =
-                [ Left (Twitter.Error "Twitter Down")
-                , Right
-                    Twitter.Tweet
-                      { tweetId = 0
-                      , createdAt = testTime
-                      }
-                ]
-            , loopConfig = LoopConfig {loopCount = Just 2, loopDelaySec = 0}
-            }
-    env <- runIO $ runApp' mockConfig
-    it "is logged" $ do
-      logs <- getLogRecord env
-      logs `shouldSatisfy` any \case
-        J.Object o
-          | Just (J.String e) <- HM.lookup "error" o ->
-            "Twitter Down" `T.isInfixOf` e
-        J.String e -> "Twitter Down" `T.isInfixOf` e
-        _ -> False
-    it "does not affect other tweets" $ do
-      getTweetRecord env
-        `shouldReturn` [ T.unlines
-                          [ "Tanaka Hanako(twitter.com/h_tanaka)さんが名前を変更しました"
-                          , ""
-                          , "Tanaka Mark-Ⅲ"
-                          , "⇑"
-                          , "Tanaka Mark-Ⅱ"
-                          ]
-                       ]
-  describe "error in first tweet post" $ do
-    let mockConfig =
-          MockConfig
-            { dbInitialState = mockDbnitialState
-            , twListsMembersResp =
-                [ Right
-                    Twitter.WithCursor
-                      { nextCursor = Nothing
-                      , previousCursor = Nothing
-                      , contents =
-                          [ mkTwitterUser1 "Yamada Mark-Ⅱ"
-                          , mkTwitterUser2 "Tanaka Mark-Ⅱ"
-                          ]
-                      }
-                , Right
-                    Twitter.WithCursor
-                      { nextCursor = Nothing
-                      , previousCursor = Nothing
-                      , contents =
-                          [ mkTwitterUser1 "Yamada Mark-Ⅲ"
-                          , mkTwitterUser2 "Tanaka Mark-Ⅱ"
-                          ]
-                      }
-                , Right
-                    Twitter.WithCursor
-                      { nextCursor = Nothing
-                      , previousCursor = Nothing
-                      , contents =
-                          [ mkTwitterUser1 "Yamada Mark-Ⅲ"
-                          , mkTwitterUser2 "Tanaka Mark-Ⅱ"
-                          ]
-                      }
-                ]
-            , twTweetResp =
-                [ Left (Twitter.Error "Twitter Down")
-                , Right
-                    Twitter.Tweet
-                      { tweetId = 0
-                      , createdAt = testTime
-                      }
-                ]
-            , loopConfig = LoopConfig {loopCount = Just 3, loopDelaySec = 0}
-            }
-    env <- runIO $ runApp' mockConfig
-    it "is retried in the next loop" $ do
-      getTweetRecord env
-        `shouldReturn` [ T.unlines
-                          [ "Yamada Taro(twitter.com/t_yamada)さんが名前を変更しました"
-                          , ""
-                          , "Yamada Mark-Ⅲ"
-                          , "⇑"
-                          , "Yamada Mark-Ⅱ"
-                          ]
-                       ]
 
 -------------------------------------------------------------------------------
 
