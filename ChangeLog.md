@@ -1,4 +1,9 @@
 
+# 0.3.1.1
+
+* Fix minor bugs
+* Refactor tests
+
 # 0.3.1.0
 
 * Use polysemy
