@@ -96,7 +96,6 @@ library
     , errors
     , generic-lens
     , microlens-platform
-    , mtl
     , polysemy
     , polysemy-plugin
     , read-env-var
