@@ -5,11 +5,12 @@
 
 module NNU.Effect.Twitter (
   Twitter (..),
-  call,
-  call',
   tweet,
-  Tweet (..),
+  listsMembers,
+  TweetResp (..),
   User (..),
+  ListsMembersParam (..),
+  ListsMembersResp,
   Error (..),
   module X,
 ) where
@@ -20,11 +21,10 @@ import qualified Data.Aeson as A
 import RIO.Partial (read)
 import qualified RIO.Text as T
 import RIO.Time
-import Web.Twitter.Conduit as X hiding (
-  call,
-  call',
+import Web.Twitter.Conduit as X (
+  UsersCursorKey,
+  WithCursor (..),
  )
-import qualified Web.Twitter.Conduit as Twitter
 
 import NNU.Prelude hiding (Handler)
 
@@ -36,49 +36,33 @@ newtype Error = Error A.Value
 instance Exception Error
 
 data Twitter m a where
-  Call_ :: -- brittany broken
-    forall apiName a _a m.
-    (A.FromJSON a, Typeable a) =>
-    Twitter.APIRequest apiName _a ->
-    Twitter m (Either Error a)
+  Tweet :: Text -> Twitter m (Either Error TweetResp)
+  ListsMembers :: ListsMembersParam -> Twitter m (Either Error ListsMembersResp)
 
-makeSem ''Twitter
-
-call' ::
-  forall (r :: [Effect]) a apiName _a.
-  ( Member Twitter r
-  , A.FromJSON a
-  , Typeable a
-  ) =>
-  Twitter.APIRequest apiName _a ->
-  Sem r (Either Error a)
-call' = call_
-
-call ::
-  forall (r :: [Effect]) a apiName.
-  ( Member Twitter r
-  , A.FromJSON a
-  , Typeable a
-  ) =>
-  Twitter.APIRequest apiName a ->
-  Sem r (Either Error a)
-call = call_
-
-tweet ::
-  Member Twitter r =>
-  T.Text ->
-  Sem r (Either Error Tweet)
-tweet msg = call' $ Twitter.statusesUpdate msg
-
-data Tweet = Tweet
+data TweetResp = TweetResp
   { tweetId :: Natural
   , createdAt :: ZonedTime
   }
   deriving stock (Show, Generic)
 
-instance A.FromJSON Tweet where
+data ListsMembersParam = ListsMembersParam
+  { listId :: Natural
+  , count :: Maybe Integer
+  }
+
+data User = User
+  { userId :: Natural
+  , userName :: Text
+  }
+  deriving stock (Show, Eq, Generic)
+
+type ListsMembersResp = WithCursor Integer UsersCursorKey User
+
+makeSem ''Twitter
+
+instance A.FromJSON TweetResp where
   parseJSON = A.withObject "Tweet" $ \o -> do
-    pure Tweet
+    pure TweetResp
       <*> (read <$> o A..: "id_str")
       <*> (pure . utcToZonedTime jst . fromTwitterTime =<< o A..: "created_at")
     where
@@ -88,12 +72,6 @@ instance A.FromJSON Tweet where
           , timeZoneSummerOnly = False
           , timeZoneName = "JST"
           }
-
-data User = User
-  { userId :: Natural
-  , userName :: Text
-  }
-  deriving stock (Show, Eq, Generic)
 
 instance A.FromJSON User where
   parseJSON = A.withObject "User" $ \o -> do
