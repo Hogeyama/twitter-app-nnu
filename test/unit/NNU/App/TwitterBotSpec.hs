@@ -386,47 +386,26 @@ spec resourceMap = do
         J.String e -> "Twitter Down" `T.isInfixOf` e
         _ -> False
     it "does not affect other tweets" $ do
-      getTweetRecord result
-        `shouldReturn` [ T.unlines
-                          [ "Tanaka Hanako(twitter.com/h_tanaka)さんが名前を変更しました"
-                          , ""
-                          , "Tanaka Mark-Ⅲ"
-                          , "⇑"
-                          , "Tanaka Mark-Ⅱ"
-                          ]
-                       ]
-  describe "error in first tweet post" $ do
+      tweetRecord <- getTweetRecord result
+      tweetRecord `shouldSatisfy` (length >>> (== 1))
+  describe "retry after error on tweet post" $ do
     let mockConfig =
           MockConfig
-            { dbInitialState = mockDbnitialState
+            { dbInitialState = mockDbinitialState
+            , dbMockConfig = MockDbConfig {errorIfMatch = \_ _ -> Nothing}
             , twListsMembersResp =
-                [ Right
-                    Twitter.WithCursor
-                      { nextCursor = Nothing
-                      , previousCursor = Nothing
-                      , contents =
-                          [ mkTwitterUser1 "Yamada Mark-Ⅱ"
-                          , mkTwitterUser2 "Tanaka Mark-Ⅱ"
-                          ]
-                      }
-                , Right
-                    Twitter.WithCursor
-                      { nextCursor = Nothing
-                      , previousCursor = Nothing
-                      , contents =
-                          [ mkTwitterUser1 "Yamada Mark-Ⅲ"
-                          , mkTwitterUser2 "Tanaka Mark-Ⅱ"
-                          ]
-                      }
-                , Right
-                    Twitter.WithCursor
-                      { nextCursor = Nothing
-                      , previousCursor = Nothing
-                      , contents =
-                          [ mkTwitterUser1 "Yamada Mark-Ⅲ"
-                          , mkTwitterUser2 "Tanaka Mark-Ⅱ"
-                          ]
-                      }
+                [ Right . mkTwitterListMembersResp $
+                    [ mkTwitterUser1 "Yamada Mark-Ⅱ"
+                    , mkTwitterUser2 "Tanaka Mark-Ⅱ"
+                    ]
+                , Right . mkTwitterListMembersResp $
+                    [ mkTwitterUser1 "Yamada Mark-Ⅲ"
+                    , mkTwitterUser2 "Tanaka Mark-Ⅱ"
+                    ]
+                , Right . mkTwitterListMembersResp $
+                    [ mkTwitterUser1 "Yamada Mark-Ⅲ"
+                    , mkTwitterUser2 "Tanaka Mark-Ⅱ"
+                    ]
                 ]
             , twTweetResp =
                 [ Left (Twitter.TweetError "Twitter Down")
