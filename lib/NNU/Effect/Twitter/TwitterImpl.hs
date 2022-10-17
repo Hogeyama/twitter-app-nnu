@@ -24,20 +24,20 @@ runTwitter ::
 runTwitter TwConfig {..} = interpret $ \case
   Tweet body -> do
     let req = TwConduit.statusesUpdate body
-    sendReq @TweetResp req
+    mapLeft TweetError <$> sendReq @TweetResp req
   ListsMembers ListsMembersParam {listId, count} -> do
     let req =
           TwConduit.listsMembers
             (TwConduit.ListIdParam $ fromIntegral listId)
             & #count
             .~ count
-    sendReq @ListsMembersResp req
+    mapLeft ListsMembersError <$> sendReq @ListsMembersResp req
   where
     sendReq ::
       forall b apiName _b.
       J.FromJSON b =>
       TwConduit.APIRequest apiName _b ->
-      Sem r (Either Error b)
+      Sem r (Either J.Value b)
     sendReq req = do
       v <- embed $ tryAnyDeep $ TwConduit.call' twInfo twManager req
       case v of
@@ -51,7 +51,7 @@ runTwitter TwConfig {..} = interpret $ \case
                     , "response" J..= resp
                     , "error" J..= e
                     ]
-            pure $ Left $ Error msg
+            pure $ Left msg
         Left e -> do
           let msg =
                 J.object
@@ -59,7 +59,7 @@ runTwitter TwConfig {..} = interpret $ \case
                   , "request" J..= show req
                   , "error" J..= show e
                   ]
-          pure $ Left $ Error msg
+          pure $ Left msg
 
 data TwConfig = TwConfig
   { twManager :: TwConduit.Manager

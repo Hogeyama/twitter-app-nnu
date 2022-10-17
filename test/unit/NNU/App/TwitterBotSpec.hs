@@ -10,7 +10,7 @@ import qualified Polysemy.Reader as Polysemy
 import qualified Polysemy.State as Polysemy
 
 import qualified Data.Aeson as J
-import Data.Generics.Product (HasAny (the))
+import Data.Generics.Product (HasField (field))
 import RIO hiding (logError, when)
 import qualified RIO.HashMap as HM
 import qualified RIO.Map as M
@@ -59,8 +59,8 @@ data ResultRecord = ResultRecord
   deriving stock (Generic)
 
 data MockConfig = MockConfig
-  { twListsMembersResp :: [Either Twitter.Error Twitter.ListsMembersResp]
-  , twTweetResp :: [Either Twitter.Error Twitter.TweetResp]
+  { twListsMembersResp :: [Either Twitter.ListsMembersError Twitter.ListsMembersResp]
+  , twTweetResp :: [Either Twitter.TweetError Twitter.TweetResp]
   , dbInitialState :: MockDbState
   , loopConfig :: Bot.LoopConfig
   }
@@ -126,29 +126,29 @@ runTwitterMock ::
   Polysemy.Members
     '[ Polysemy.Error String
      , Polysemy.State [Text] -- record tweet
-     , Polysemy.State [Either Twitter.Error Twitter.ListsMembersResp] -- api call response
-     , Polysemy.State [Either Twitter.Error Twitter.TweetResp] -- api call response
+     , Polysemy.State [Either Twitter.ListsMembersError Twitter.ListsMembersResp] -- api call response
+     , Polysemy.State [Either Twitter.TweetError Twitter.TweetResp] -- api call response
      ]
     r =>
   Sem (Twitter.Twitter ': r) a ->
   Sem r a
 runTwitterMock = interpret $ \case
   Twitter.ListsMembers _ -> do
-    mockSimpleAction @Twitter.ListsMembersResp "listMembers"
+    mockSimpleAction "listMembers"
   Twitter.Tweet body -> do
-    tw <- mockSimpleAction @Twitter.TweetResp "tweet"
+    tw <- mockSimpleAction "tweet"
     when (isRight tw) do
       Polysemy.modify' @[Text] (body :)
     pure tw
   where
     mockSimpleAction ::
-      forall x r'.
+      forall x e r'.
       Polysemy.Member (Polysemy.Error String) r' =>
-      Polysemy.Member (Polysemy.State [Either Twitter.Error x]) r' =>
+      Polysemy.Member (Polysemy.State [Either e x]) r' =>
       String ->
-      Sem r' (Either Twitter.Error x)
+      Sem r' (Either e x)
     mockSimpleAction name = do
-      Polysemy.get @[Either Twitter.Error x] >>= \case
+      Polysemy.get @[Either e x] >>= \case
         x : xs -> do
           Polysemy.put xs
           pure x
@@ -169,7 +169,7 @@ runDbMock = interpret $ \case
   where
     getCurrentName_ :: NNU.Member -> Sem r Db.CurrentNameItem
     getCurrentName_ member = do
-      let memberName = member ^. the @"memberName"
+      let memberName = member ^. field @"memberName"
       MockDbState m <- Polysemy.get @MockDbState
       pure $ Partial.fromJust $ Map.lookup memberName m
     getCurrentNamesOfGroup_ :: NNU.Group -> Sem r [Db.CurrentNameItem]
@@ -177,7 +177,7 @@ runDbMock = interpret $ \case
       mapM getCurrentName_ members
     updateCurrentName_ :: Db.UpdateCurrentNameItem -> Sem r ()
     updateCurrentName_ Db.UpdateCurrentNameItem {..} = do
-      let memberName = member ^. the @"memberName"
+      let memberName = member ^. field @"memberName"
           cni = Db.CurrentNameItem {..}
       Polysemy.modify' $ \(MockDbState m) -> MockDbState (Map.insert memberName cni m)
 
@@ -195,7 +195,7 @@ getTweetRecord :: MonadIO m => ResultRecord -> m [Text]
 getTweetRecord ResultRecord {..} = reverse <$> readIORef tweetRecord
 
 getCurrentState :: MonadIO m => ResultRecord -> m (Maybe (Map Text Text))
-getCurrentState ResultRecord {..} = view (the @"store") <$> readIORef appState
+getCurrentState ResultRecord {..} = view (field @"nameMapCache") <$> readIORef appState
 
 -- Mock Data
 ----------------
@@ -227,12 +227,12 @@ mockDbnitialState :: MockDbState
 mockDbnitialState =
   mockDbStateFromList
     [ Db.CurrentNameItem
-        { memberName = mockMember1 ^. the @"memberName"
+        { memberName = mockMember1 ^. field @"memberName"
         , updateTime = testTime
         , twitterName = "Yamada Mark-Ⅱ"
         }
     , Db.CurrentNameItem
-        { memberName = mockMember2 ^. the @"memberName"
+        { memberName = mockMember2 ^. field @"memberName"
         , updateTime = testTime
         , twitterName = "Tanaka Mark-Ⅱ"
         }
@@ -330,7 +330,7 @@ spec resourceMap = do
     let mockConfig =
           MockConfig
             { dbInitialState = mockDbnitialState
-            , twListsMembersResp = [Left (Twitter.Error "Twitter Down")]
+            , twListsMembersResp = [Left (Twitter.ListsMembersError "Twitter Down")]
             , twTweetResp = []
             , loopConfig = LoopConfig {loopCount = Just 1, loopDelaySec = 0}
             }
@@ -367,7 +367,7 @@ spec resourceMap = do
                       }
                 ]
             , twTweetResp =
-                [ Left (Twitter.Error "Twitter Down")
+                [ Left (Twitter.TweetError "Twitter Down")
                 , Right
                     Twitter.TweetResp
                       { tweetId = 0
@@ -429,7 +429,7 @@ spec resourceMap = do
                       }
                 ]
             , twTweetResp =
-                [ Left (Twitter.Error "Twitter Down")
+                [ Left (Twitter.TweetError "Twitter Down")
                 , Right
                     Twitter.TweetResp
                       { tweetId = 0

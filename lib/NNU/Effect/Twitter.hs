@@ -8,10 +8,11 @@ module NNU.Effect.Twitter (
   tweet,
   listsMembers,
   TweetResp (..),
+  TweetError (..),
   User (..),
   ListsMembersParam (..),
   ListsMembersResp,
-  Error (..),
+  ListsMembersError (..),
   module X,
 ) where
 
@@ -30,14 +31,19 @@ import NNU.Prelude hiding (Handler)
 
 {-# ANN module ("HLint: ignore Use <$>" :: String) #-}
 
-newtype Error = Error A.Value
+newtype TweetError = TweetError A.Value
   deriving stock (Show, Eq, Ord)
   deriving newtype (A.ToJSON)
-instance Exception Error
+instance Exception TweetError
+
+newtype ListsMembersError = ListsMembersError A.Value
+  deriving stock (Show, Eq, Ord)
+  deriving newtype (A.ToJSON)
+instance Exception ListsMembersError
 
 data Twitter m a where
-  Tweet :: Text -> Twitter m (Either Error TweetResp)
-  ListsMembers :: ListsMembersParam -> Twitter m (Either Error ListsMembersResp)
+  Tweet :: Text -> Twitter m (Either TweetError TweetResp)
+  ListsMembers :: ListsMembersParam -> Twitter m (Either ListsMembersError ListsMembersResp)
 
 data TweetResp = TweetResp
   { tweetId :: Natural
