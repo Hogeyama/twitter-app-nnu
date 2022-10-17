@@ -5,6 +5,7 @@ module NNU.App.TwitterBot (
   app,
   Effs,
   AppConfig (..),
+  initialAppState,
   LoopConfig (..),
   nijisanjiAppConfig,
   gamersAppConfig,
@@ -13,7 +14,6 @@ module NNU.App.TwitterBot (
   testAppConfig,
   -- for test
   AppState (..),
-  initialAppState,
 ) where
 
 import Polysemy
@@ -58,7 +58,7 @@ data AppConfig = AppConfig
   deriving stock (Generic)
 
 data AppState = AppState
-  { store :: Maybe SimpleNameMap
+  { nameMapCache :: Maybe SimpleNameMap
   , dbPendingItems :: Map Nnu.Member DbPendingItem
   }
   deriving stock (Generic)
@@ -97,7 +97,9 @@ getDbPendigItems ::
   ( Member (State AppState) r
   ) =>
   Sem r (Map Nnu.Member DbPendingItem)
-getDbPendigItems = gets dbPendingItems
+getDbPendigItems = do
+  normalizePendingItems
+  gets dbPendingItems
 
 updatePendingItem ::
   ( Member (State AppState) r
@@ -146,7 +148,7 @@ testAppConfig = AppConfig {group = Nnu.testGroup}
 
 data LoopConfig = LoopConfig
   { loopDelaySec :: Int
-  , loopCount :: Maybe Int
+  , loopCount :: Maybe Int -- Nothing means infinite loop
   }
   deriving stock (Show, Eq, Ord, Generic)
 
@@ -182,15 +184,15 @@ app ::
   Sem r ()
 app loopConfig = runLoop loopConfig do
   catchAndLogFetchError $
-    readData >>= \case
-      Nothing -> fetchData >>= writeData
+    getCache >>= \case
+      Nothing -> fetchData >>= updateCache
       Just oldData -> do
         retryUpdateDb
         -- newDataが欠けている場合はoldDataを使う
         newData <- Map.unionWith (\_o n -> n) oldData <$> fetchData
-        diffs <- calcDiff oldData newData
+        diffs <- diff oldData newData
         cacheDiffs <- filterM (fmap isCacheUpdateNeeded . tweetNameUpdate) diffs
-        writeData $ applyPatch oldData cacheDiffs
+        updateCache $ applyPatch oldData cacheDiffs
   where
     isCacheUpdateNeeded = \case
       TweetSucceeded -> True
@@ -208,14 +210,14 @@ app loopConfig = runLoop loopConfig do
         Right () -> pure ()
         Left (e :: Twitter.ListsMembersError) -> Logger.info e
 
-readData ::
+getCache ::
   forall r.
   ( Members '[State AppState] r
   ) =>
   Sem r (Maybe SimpleNameMap)
-readData = gets store
+getCache = gets nameMapCache
 
-writeData ::
+updateCache ::
   forall r.
   ( Members '[State AppState] r
   ) =>
@@ -271,30 +273,29 @@ fetchData = do
       [Nnu.Member] ->
       Map k a ->
       Sem r (Map Text a)
-    mkSimpleNameMap field members map' =
-      fmap (Map.fromList . catMaybes) $
-        forM members $ \member -> do
-          case Map.lookup (field member) map' of
-            Nothing -> do
-              Logger.error $ Nnu.memberName member <> " not found"
-              return Nothing
-            Just x -> pure $ Just (Nnu.memberName member, x)
+    mkSimpleNameMap field' members map' =
+      fmap (Map.fromList . catMaybes) . forM members $ \member -> do
+        case Map.lookup (field' member) map' of
+          Nothing -> do
+            Logger.error $ Nnu.memberName member <> " not found"
+            return Nothing
+          Just x -> pure $ Just (Nnu.memberName member, x)
 
-calcDiff ::
+diff ::
   forall r.
-  Members '[Reader AppConfig] r =>
+  ( Members '[Reader AppConfig] r
+  ) =>
   SimpleNameMap ->
   SimpleNameMap ->
   Sem r [DiffMember]
-calcDiff oldData newData = do
+diff oldData newData = do
   Nnu.Group {members} <- asks group
   let updates = do
         member@Nnu.Member {..} <- members
-        case (oldData, newData) & both %~ Map.lookup memberName of
-          (Just oldName, Just newName)
-            | oldName /= newName ->
-              return DiffMember {..}
-          _ -> []
+        [Just oldName, Just newName] <-
+          pure $ Map.lookup memberName <$> [oldData, newData]
+        guard (oldName /= newName)
+        return DiffMember {..}
   return updates
 
 data TweetResult
@@ -512,7 +513,6 @@ retryUpdateDb ::
   ) =>
   Sem r ()
 retryUpdateDb = ignoreDbError $ do
-  normalizePendingItems
   pendingItems <- getDbPendigItems
   when (Map.size pendingItems > 0) $ do
     logCurrentPendingItems pendingItems

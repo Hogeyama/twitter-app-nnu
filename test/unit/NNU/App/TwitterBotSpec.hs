@@ -277,9 +277,9 @@ spec resourceMap = do
                 ]
             , loopConfig = LoopConfig {loopCount = Just 2, loopDelaySec = 0}
             }
-    env <- runIO $ runApp' mockConfig
+    result <- runIO $ runApp' mockConfig
     it "is logged" $ do
-      getLogRecord env
+      getLogRecord result
         `shouldReturn` [ J.object
                           [ "message" J..= ("twitter name changed" :: Text)
                           , "member" J..= ("Yamada Taro" :: Text)
@@ -288,7 +288,7 @@ spec resourceMap = do
                           ]
                        ]
     it "is tweeted" $ do
-      getTweetRecord env
+      getTweetRecord result
         `shouldReturn` [ T.unlines
                           [ "Yamada Taro(twitter.com/t_yamada)さんが名前を変更しました"
                           , ""
@@ -298,7 +298,7 @@ spec resourceMap = do
                           ]
                        ]
     it "alters state" $ do
-      getCurrentState env
+      getCurrentState result
         `shouldReturn` Just
           ( M.fromList
               [("Tanaka Hanako", "Tanaka Mark-Ⅱ"), ("Yamada Taro", "Yamada Mark-Ⅲ")]
@@ -318,13 +318,13 @@ spec resourceMap = do
             , twTweetResp = []
             , loopConfig = LoopConfig {loopCount = Just 1, loopDelaySec = 0}
             }
-    env <- runIO $ runApp' mockConfig
+    result <- runIO $ runApp' mockConfig
     it "is logged" $ do
-      getLogRecord env `shouldReturn` ["Tanaka Hanako not found"]
+      getLogRecord result `shouldReturn` ["Tanaka Hanako not found"]
     it "is not tweeted" $ do
-      getTweetRecord env `shouldReturn` []
+      getTweetRecord result `shouldReturn` []
     it "alters state" $ do
-      getCurrentState env
+      getCurrentState result
         `shouldReturn` Just (M.fromList [("Yamada Taro", "Yamada Mark-Ⅱ")])
   describe "error in listsMembers response" $ do
     let mockConfig =
@@ -334,14 +334,14 @@ spec resourceMap = do
             , twTweetResp = []
             , loopConfig = LoopConfig {loopCount = Just 1, loopDelaySec = 0}
             }
-    env <- runIO $ runApp' mockConfig
+    result <- runIO $ runApp' mockConfig
     it "is logged" $ do
-      logs <- getLogRecord env
+      logs <- getLogRecord result
       logs `shouldSatisfy` \case
         [J.String e] -> "Twitter Down" `T.isInfixOf` e
         _ -> False
     it "is not tweeted" $ do
-      getTweetRecord env `shouldReturn` []
+      getTweetRecord result `shouldReturn` []
   describe "error in first tweet post" $ do
     let mockConfig =
           MockConfig
@@ -376,9 +376,9 @@ spec resourceMap = do
                 ]
             , loopConfig = LoopConfig {loopCount = Just 2, loopDelaySec = 0}
             }
-    env <- runIO $ runApp' mockConfig
+    result <- runIO $ runApp' mockConfig
     it "is logged" $ do
-      logs <- getLogRecord env
+      logs <- getLogRecord result
       logs `shouldSatisfy` any \case
         J.Object o
           | Just (J.String e) <- HM.lookup "error" o ->
@@ -386,7 +386,7 @@ spec resourceMap = do
         J.String e -> "Twitter Down" `T.isInfixOf` e
         _ -> False
     it "does not affect other tweets" $ do
-      getTweetRecord env
+      getTweetRecord result
         `shouldReturn` [ T.unlines
                           [ "Tanaka Hanako(twitter.com/h_tanaka)さんが名前を変更しました"
                           , ""
@@ -438,9 +438,9 @@ spec resourceMap = do
                 ]
             , loopConfig = LoopConfig {loopCount = Just 3, loopDelaySec = 0}
             }
-    env <- runIO $ runApp' mockConfig
+    result <- runIO $ runApp' mockConfig
     it "is retried in the next loop" $ do
-      getTweetRecord env
+      getTweetRecord result
         `shouldReturn` [ T.unlines
                           [ "Yamada Taro(twitter.com/t_yamada)さんが名前を変更しました"
                           , ""
