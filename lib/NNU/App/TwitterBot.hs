@@ -22,7 +22,7 @@ import Polysemy.Reader as Polysemy
 import Polysemy.State as Polysemy
 
 import qualified Data.Aeson as A
-import Data.Generics.Product (HasAny (the))
+import Data.Generics.Product (HasField (field))
 import Data.Monoid (Endo (..))
 import RIO.Char (isAscii)
 import qualified RIO.Map as Map
@@ -107,7 +107,7 @@ updatePendingItem ::
   Sem r ()
 updatePendingItem member f = do
   modify' $
-    the @"dbPendingItems"
+    field @"dbPendingItems"
       %~ Map.alter
         \case
           Nothing -> Just (f emptyDbPendingItem)
@@ -119,7 +119,7 @@ normalizePendingItems ::
   ) =>
   Sem r ()
 normalizePendingItems = do
-  modify' $ the @"dbPendingItems" %~ Map.filter (/= emptyDbPendingItem)
+  modify' $ field @"dbPendingItems" %~ Map.filter (/= emptyDbPendingItem)
 
 -------------------------------------------------------------------------------
 -- Config
@@ -221,7 +221,7 @@ writeData ::
   ) =>
   SimpleNameMap ->
   Sem r ()
-writeData d = modify' $ the @"store" .~ Just d
+updateCache d = modify' $ field @"nameMapCache" .~ Just d
 
 fetchData ::
   forall r.
@@ -383,7 +383,7 @@ tweetNameUpdate d@DiffMember {..}
 
         getCurrentName :: Nnu.Member -> Sem r' Text
         getCurrentName m = do
-          r <- fmap (view (the @"twitterName")) <$> Db.getCurrentName m
+          r <- fmap (view (field @"twitterName")) <$> Db.getCurrentName m
           fromEither $ mapLeft (PrecheckFailed . A.toJSON) r
 
     handleError :: Sem r' TweetResult -> Sem r TweetResult
@@ -465,12 +465,12 @@ updateDb Twitter.TweetResp {..} DiffMember {..} = do
     Right () ->
       -- 更新できたのでpendingItemsから削除
       updatePendingItem member . applys $
-        [ the @"updateCurrentNameItem" .~ Nothing
+        [ field @"updateCurrentNameItem" .~ Nothing
         ]
     Left e -> do
       updatePendingItem member . applys $
-        [ the @"updateCurrentNameItem" .~ Just nameUpdateItem
-        , the @"historyItems" %~ Set.insert historyItem
+        [ field @"updateCurrentNameItem" .~ Just nameUpdateItem
+        , field @"historyItems" %~ Set.insert historyItem
         ]
       Polysemy.throw e
   Db.putHistory historyItem >>= \case
@@ -479,7 +479,7 @@ updateDb Twitter.TweetResp {..} DiffMember {..} = do
       pure ()
     Left e -> do
       updatePendingItem member . applys $
-        [ the @"historyItems" %~ Set.insert historyItem
+        [ field @"historyItems" %~ Set.insert historyItem
         ]
       Polysemy.throw e
   where
@@ -520,10 +520,10 @@ retryUpdateDb = ignoreDbError $ do
       \(member, DbPendingItem {updateCurrentNameItem, historyItems}) -> do
         forM_ updateCurrentNameItem $ \item -> do
           Db.updateCurrentName item >>= fromEither
-          updatePendingItem member $ the @"updateCurrentNameItem" .~ Nothing
+          updatePendingItem member $ field @"updateCurrentNameItem" .~ Nothing
         forM_ historyItems $ \historyItem -> do
           Db.putHistory historyItem >>= fromEither
-          updatePendingItem member $ the @"historyItems" %~ Set.delete historyItem
+          updatePendingItem member $ field @"historyItems" %~ Set.delete historyItem
     logRetryFinished
   where
     logCurrentPendingItems :: Map Nnu.Member DbPendingItem -> Sem r' ()
