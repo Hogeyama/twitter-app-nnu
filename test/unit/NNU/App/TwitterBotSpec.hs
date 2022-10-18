@@ -223,8 +223,8 @@ mkTwitterUser1 = Twitter.User 1
 mkTwitterUser2 :: Text -> Twitter.User
 mkTwitterUser2 = Twitter.User 2
 
-mockDbnitialState :: MockDbState
-mockDbnitialState =
+mockDbinitialState :: MockDbState
+mockDbinitialState =
   mockDbStateFromList
     [ Db.CurrentNameItem
         { memberName = mockMember1 ^. field @"memberName"
@@ -247,7 +247,7 @@ spec resourceMap = do
   describe "twitter name change" $ do
     let mockConfig =
           MockConfig
-            { dbInitialState = mockDbnitialState
+            { dbInitialState = mockDbinitialState
             , twListsMembersResp =
                 [ Right
                     Twitter.WithCursor
@@ -306,7 +306,7 @@ spec resourceMap = do
   describe "user not in list" $ do
     let mockConfig =
           MockConfig
-            { dbInitialState = mockDbnitialState
+            { dbInitialState = mockDbinitialState
             , twListsMembersResp =
                 [ Right
                     Twitter.WithCursor
@@ -329,7 +329,7 @@ spec resourceMap = do
   describe "error in listsMembers response" $ do
     let mockConfig =
           MockConfig
-            { dbInitialState = mockDbnitialState
+            { dbInitialState = mockDbinitialState
             , twListsMembersResp = [Left (Twitter.ListsMembersError "Twitter Down")]
             , twTweetResp = []
             , loopConfig = LoopConfig {loopCount = Just 1, loopDelaySec = 0}
@@ -345,7 +345,7 @@ spec resourceMap = do
   describe "error in first tweet post" $ do
     let mockConfig =
           MockConfig
-            { dbInitialState = mockDbnitialState
+            { dbInitialState = mockDbinitialState
             , twListsMembersResp =
                 [ Right
                     Twitter.WithCursor
