@@ -1,13 +1,14 @@
 {-# LANGUAGE BlockArguments #-}
 
+-- | White-box tests for the 'NNU.App.TwitterBot' module.
 module NNU.App.TwitterBotSpec (
   spec,
 ) where
 
 import Polysemy
-import qualified Polysemy.Error as Polysemy
-import qualified Polysemy.Reader as Polysemy
-import qualified Polysemy.State as Polysemy
+import Polysemy.Error as Polysemy
+import Polysemy.Reader as Polysemy
+import Polysemy.State as Polysemy
 
 import qualified Data.Aeson as J
 import Data.Generics.Product (HasField (field))
@@ -29,7 +30,9 @@ import qualified Web.Twitter.Conduit as OrigTwitter
 
 import NNU.App.TwitterBot (
   AppConfig (..),
+  DbPendingItem,
   LoopConfig (..),
+  normalizePendingItems,
  )
 import qualified NNU.App.TwitterBot as Bot
 import qualified NNU.Effect.Db as Db
@@ -62,15 +65,40 @@ data MockConfig = MockConfig
   { twListsMembersResp :: [Either Twitter.ListsMembersError Twitter.ListsMembersResp]
   , twTweetResp :: [Either Twitter.TweetError Twitter.TweetResp]
   , dbInitialState :: MockDbState
+  , dbMockConfig :: MockDbConfig
   , loopConfig :: Bot.LoopConfig
   }
 
-newtype MockDbState = MockDbState (Map Text Db.CurrentNameItem)
+data MockDbState = MockDbState
+  { nameMap :: Map Text Db.CurrentNameItem
+  , getCurrentNameCount :: Int
+  , getCurrentNamesOfGroup :: Int
+  , updateCurrentNameCount :: Int
+  , putHistoryCount :: Int
+  , getHistoryCount :: Int
+  }
+  deriving (Generic)
+
+data MockDbConfig = MockDbConfig
+  { -- | @errorIfMatch action nth == Just err@ means that @action@ will throw @err@ on @nth@ call.
+    --   @Nothing@ means that @action@ will not throw any error.
+    --   @nth@ starts from 1.
+    --   On counting the number of calls, fields of actions are ignored. i.e.,
+    --   There is no distinguish between @GetCurrentName "tanaka"@ and @GetCurrentName "suzuki"@.
+    --   Each of them is counted as one call of the same @GetCurrentName@ action.
+    errorIfMatch :: forall k (m :: k) a. Db.NnuDb m a -> Int -> Maybe Text
+  }
 
 mockDbStateFromList :: [Db.CurrentNameItem] -> MockDbState
 mockDbStateFromList xs =
-  MockDbState $
-    Map.fromList [(memberName, x) | x@Db.CurrentNameItem {..} <- xs]
+  MockDbState
+    { nameMap = Map.fromList [(memberName, x) | x@Db.CurrentNameItem {..} <- xs]
+    , getCurrentNameCount = 0
+    , getCurrentNamesOfGroup = 0
+    , updateCurrentNameCount = 0
+    , putHistoryCount = 0
+    , getHistoryCount = 0
+    }
 
 runApp :: ResourceMap -> MockConfig -> IO ResultRecord
 runApp resourceMap mockConfig = do
@@ -94,6 +122,7 @@ runApp resourceMap mockConfig = do
     . Polysemy.runStateIORef tweetRecord
     . runTwitterMock
     -- mock db
+    . Polysemy.runReader (dbMockConfig mockConfig)
     . Polysemy.runStateIORef dbState
     . runDbMock
     -- application config and state
@@ -101,6 +130,7 @@ runApp resourceMap mockConfig = do
     . Polysemy.runStateIORef appState
     . Polysemy.runReader appConfig
     $ Bot.app (loopConfig mockConfig)
+      >> normalizePendingItems
   pure ResultRecord {..}
 
 throwError ::
@@ -154,24 +184,44 @@ runTwitterMock = interpret $ \case
           pure x
         [] -> Polysemy.throw @String $ name <> " called too many times"
 
--- TODO こっちもエラーを模倣したほうがよいのでは
 runDbMock ::
   forall r a.
-  Polysemy.Member (Polysemy.State MockDbState) r =>
+  ( Member (State MockDbState) r
+  , Member (Reader MockDbConfig) r
+  ) =>
   Sem (Db.NnuDb ': r) a ->
   Sem r a
-runDbMock = interpret $ \case
-  Db.GetCurrentName member -> Right <$> getCurrentName_ member
-  Db.GetCurrentNamesOfGroup group -> Right <$> getCurrentNamesOfGroup_ group
-  Db.UpdateCurrentName name -> Right <$> updateCurrentName_ name
-  Db.PutHistory _ -> pure (Right ())
-  Db.GetHistroy _ -> error "not implemented"
+runDbMock = do
+  interpret \e -> do
+    MockDbConfig {errorIfMatch} <- ask @MockDbConfig
+    case e of
+      Db.GetCurrentName member -> do
+        n <- increment (field @"getCurrentNameCount")
+        case errorIfMatch e n of
+          Just err -> mkErr Db.GetCurrentNameError err
+          Nothing -> Right <$> getCurrentName_ member
+      Db.GetCurrentNamesOfGroup group -> do
+        n <- increment (field @"getCurrentNamesOfGroup")
+        case errorIfMatch e n of
+          Just err -> mkErr Db.GetCurrentNamesOfGroupError err
+          Nothing -> Right <$> getCurrentNamesOfGroup_ group
+      Db.UpdateCurrentName name -> do
+        n <- increment (field @"updateCurrentNameCount")
+        case errorIfMatch e n of
+          Just err -> mkErr Db.UpdateCurrentNameError err
+          Nothing -> Right <$> updateCurrentName_ name
+      Db.PutHistory _ -> do
+        n <- increment (field @"putHistoryCount")
+        case errorIfMatch e n of
+          Just err -> mkErr Db.PutHistoryError err
+          Nothing -> pure $ Right ()
+      Db.GetHistroy _ -> error "not implemented"
   where
     getCurrentName_ :: NNU.Member -> Sem r Db.CurrentNameItem
     getCurrentName_ member = do
       let memberName = member ^. field @"memberName"
-      MockDbState m <- Polysemy.get @MockDbState
-      pure $ Partial.fromJust $ Map.lookup memberName m
+      MockDbState {nameMap} <- Polysemy.get @MockDbState
+      pure $ Partial.fromJust $ Map.lookup memberName nameMap
     getCurrentNamesOfGroup_ :: NNU.Group -> Sem r [Db.CurrentNameItem]
     getCurrentNamesOfGroup_ Group {members} = do
       mapM getCurrentName_ members
@@ -179,7 +229,15 @@ runDbMock = interpret $ \case
     updateCurrentName_ Db.UpdateCurrentNameItem {..} = do
       let memberName = member ^. field @"memberName"
           cni = Db.CurrentNameItem {..}
-      Polysemy.modify' $ \(MockDbState m) -> MockDbState (Map.insert memberName cni m)
+      Polysemy.modify' @MockDbState $ field @"nameMap" %~ Map.insert memberName cni
+
+    increment :: Lens' MockDbState Int -> Sem r Int
+    increment l = do
+      Polysemy.modify' $ l %~ (+ 1)
+      Polysemy.gets (view l)
+
+    mkErr :: forall e b. (J.Value -> e) -> Text -> Sem r (Either e b)
+    mkErr con err = pure . Left . con . J.String $ err
 
 runSleepMock :: Sem (Sleep ': r) a -> Sem r a
 runSleepMock = interpret $ \case
@@ -196,6 +254,9 @@ getTweetRecord ResultRecord {..} = reverse <$> readIORef tweetRecord
 
 getCurrentState :: MonadIO m => ResultRecord -> m (Maybe (Map Text Text))
 getCurrentState ResultRecord {..} = view (field @"nameMapCache") <$> readIORef appState
+
+getDbPendingItems :: MonadIO m => ResultRecord -> m (Map NNU.Member DbPendingItem)
+getDbPendingItems ResultRecord {..} = view (field @"dbPendingItems") <$> readIORef appState
 
 -- Mock Data
 ----------------
@@ -248,6 +309,7 @@ spec resourceMap = do
     let mockConfig =
           MockConfig
             { dbInitialState = mockDbinitialState
+            , dbMockConfig = MockDbConfig {errorIfMatch = \_ _ -> Nothing}
             , twListsMembersResp =
                 [ Right
                     Twitter.WithCursor
@@ -307,6 +369,7 @@ spec resourceMap = do
     let mockConfig =
           MockConfig
             { dbInitialState = mockDbinitialState
+            , dbMockConfig = MockDbConfig {errorIfMatch = \_ _ -> Nothing}
             , twListsMembersResp =
                 [ Right
                     Twitter.WithCursor
@@ -330,6 +393,7 @@ spec resourceMap = do
     let mockConfig =
           MockConfig
             { dbInitialState = mockDbinitialState
+            , dbMockConfig = MockDbConfig {errorIfMatch = \_ _ -> Nothing}
             , twListsMembersResp = [Left (Twitter.ListsMembersError "Twitter Down")]
             , twTweetResp = []
             , loopConfig = LoopConfig {loopCount = Just 1, loopDelaySec = 0}
@@ -346,6 +410,7 @@ spec resourceMap = do
     let mockConfig =
           MockConfig
             { dbInitialState = mockDbinitialState
+            , dbMockConfig = MockDbConfig {errorIfMatch = \_ _ -> Nothing}
             , twListsMembersResp =
                 [ Right
                     Twitter.WithCursor

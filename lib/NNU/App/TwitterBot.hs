@@ -14,6 +14,8 @@ module NNU.App.TwitterBot (
   testAppConfig,
   -- for test
   AppState (..),
+  DbPendingItem (..),
+  normalizePendingItems,
 ) where
 
 import Polysemy
