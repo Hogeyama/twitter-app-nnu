@@ -12,7 +12,7 @@ import Polysemy.State as Polysemy
 
 import qualified Data.Aeson as J
 import Data.Generics.Product (HasField (field))
-import RIO hiding (logError, when)
+import RIO hiding (Reader, ask, logError, when)
 import qualified RIO.HashMap as HM
 import qualified RIO.Map as M
 import qualified RIO.Map as Map
@@ -37,18 +37,18 @@ import NNU.App.TwitterBot (
 import qualified NNU.App.TwitterBot as Bot
 import qualified NNU.Effect.Db as Db
 import qualified NNU.Effect.Log as Log
+import NNU.Effect.Sleep (Sleep)
+import qualified NNU.Effect.Sleep as Sleep
 import qualified NNU.Effect.Twitter as Twitter
 import NNU.Nijisanji (
   Group (..),
   GroupName (Other),
  )
 import qualified NNU.Nijisanji as NNU
+import NNU.Prelude (when)
 import qualified NNU.Prelude
 
-import NNU.Effect.Sleep (Sleep)
-import qualified NNU.Effect.Sleep as Sleep
 import Test.Hspec
-import NNU.Prelude (when)
 
 -------------------------------------------------------------------------------
 -- Mock
@@ -284,6 +284,21 @@ mkTwitterUser1 = Twitter.User 1
 mkTwitterUser2 :: Text -> Twitter.User
 mkTwitterUser2 = Twitter.User 2
 
+mkTwitterListMembersResp :: [Twitter.User] -> Twitter.ListsMembersResp
+mkTwitterListMembersResp users =
+  Twitter.WithCursor
+    { nextCursor = Nothing
+    , previousCursor = Nothing
+    , contents = users
+    }
+
+successTweetResp :: Twitter.TweetResp
+successTweetResp =
+  Twitter.TweetResp
+    { tweetId = 0
+    , createdAt = testTime
+    }
+
 mockDbinitialState :: MockDbState
 mockDbinitialState =
   mockDbStateFromList
@@ -311,32 +326,16 @@ spec resourceMap = do
             { dbInitialState = mockDbinitialState
             , dbMockConfig = MockDbConfig {errorIfMatch = \_ _ -> Nothing}
             , twListsMembersResp =
-                [ Right
-                    Twitter.WithCursor
-                      { nextCursor = Nothing
-                      , previousCursor = Nothing
-                      , contents =
-                          [ mkTwitterUser1 "Yamada Mark-Ⅱ"
-                          , mkTwitterUser2 "Tanaka Mark-Ⅱ"
-                          ]
-                      }
-                , Right
-                    Twitter.WithCursor
-                      { nextCursor = Nothing
-                      , previousCursor = Nothing
-                      , contents =
-                          [ mkTwitterUser1 "Yamada Mark-Ⅲ"
-                          , mkTwitterUser2 "Tanaka Mark-Ⅱ"
-                          ]
-                      }
+                [ Right . mkTwitterListMembersResp $
+                    [ mkTwitterUser1 "Yamada Mark-Ⅱ"
+                    , mkTwitterUser2 "Tanaka Mark-Ⅱ"
+                    ]
+                , Right . mkTwitterListMembersResp $
+                    [ mkTwitterUser1 "Yamada Mark-Ⅲ"
+                    , mkTwitterUser2 "Tanaka Mark-Ⅱ"
+                    ]
                 ]
-            , twTweetResp =
-                [ Right
-                    Twitter.TweetResp
-                      { tweetId = 0
-                      , createdAt = testTime
-                      }
-                ]
+            , twTweetResp = [Right successTweetResp]
             , loopConfig = LoopConfig {loopCount = Just 2, loopDelaySec = 0}
             }
     result <- runIO $ runApp' mockConfig
@@ -371,12 +370,8 @@ spec resourceMap = do
             { dbInitialState = mockDbinitialState
             , dbMockConfig = MockDbConfig {errorIfMatch = \_ _ -> Nothing}
             , twListsMembersResp =
-                [ Right
-                    Twitter.WithCursor
-                      { nextCursor = Nothing
-                      , previousCursor = Nothing
-                      , contents = [mkTwitterUser1 "Yamada Mark-Ⅱ"]
-                      }
+                [ Right . mkTwitterListMembersResp $
+                    [mkTwitterUser1 "Yamada Mark-Ⅱ"]
                 ]
             , twTweetResp = []
             , loopConfig = LoopConfig {loopCount = Just 1, loopDelaySec = 0}
@@ -389,7 +384,7 @@ spec resourceMap = do
     it "alters state" $ do
       getCurrentState result
         `shouldReturn` Just (M.fromList [("Yamada Taro", "Yamada Mark-Ⅱ")])
-  describe "error in listsMembers response" $ do
+  describe "error on listsMembers response" $ do
     let mockConfig =
           MockConfig
             { dbInitialState = mockDbinitialState
@@ -406,38 +401,24 @@ spec resourceMap = do
         _ -> False
     it "is not tweeted" $ do
       getTweetRecord result `shouldReturn` []
-  describe "error in first tweet post" $ do
+  describe "error on tweet post" $ do
     let mockConfig =
           MockConfig
             { dbInitialState = mockDbinitialState
             , dbMockConfig = MockDbConfig {errorIfMatch = \_ _ -> Nothing}
             , twListsMembersResp =
-                [ Right
-                    Twitter.WithCursor
-                      { nextCursor = Nothing
-                      , previousCursor = Nothing
-                      , contents =
-                          [ mkTwitterUser1 "Yamada Mark-Ⅱ"
-                          , mkTwitterUser2 "Tanaka Mark-Ⅱ"
-                          ]
-                      }
-                , Right
-                    Twitter.WithCursor
-                      { nextCursor = Nothing
-                      , previousCursor = Nothing
-                      , contents =
-                          [ mkTwitterUser1 "Yamada Mark-Ⅲ"
-                          , mkTwitterUser2 "Tanaka Mark-Ⅲ"
-                          ]
-                      }
+                [ Right . mkTwitterListMembersResp $
+                    [ mkTwitterUser1 "Yamada Mark-Ⅱ"
+                    , mkTwitterUser2 "Tanaka Mark-Ⅱ"
+                    ]
+                , Right . mkTwitterListMembersResp $
+                    [ mkTwitterUser1 "Yamada Mark-Ⅲ"
+                    , mkTwitterUser2 "Tanaka Mark-Ⅲ"
+                    ]
                 ]
             , twTweetResp =
                 [ Left (Twitter.TweetError "Twitter Down")
-                , Right
-                    Twitter.TweetResp
-                      { tweetId = 0
-                      , createdAt = testTime
-                      }
+                , Right successTweetResp
                 ]
             , loopConfig = LoopConfig {loopCount = Just 2, loopDelaySec = 0}
             }
@@ -483,7 +464,7 @@ spec resourceMap = do
             , loopConfig = LoopConfig {loopCount = Just 3, loopDelaySec = 0}
             }
     result <- runIO $ runApp' mockConfig
-    it "is retried in the next loop" $ do
+    it "is done in the next loop" $ do
       getTweetRecord result
         `shouldReturn` [ T.unlines
                           [ "Yamada Taro(twitter.com/t_yamada)さんが名前を変更しました"
