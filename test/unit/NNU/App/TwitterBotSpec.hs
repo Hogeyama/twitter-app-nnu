@@ -12,6 +12,7 @@ import Polysemy.State as Polysemy
 
 import qualified Data.Aeson as J
 import Data.Generics.Product (HasField (field))
+import qualified Lens.Micro.Aeson as J
 import RIO hiding (Reader, ask, logError, when)
 import qualified RIO.HashMap as HM
 import qualified RIO.Map as M
@@ -474,6 +475,156 @@ spec resourceMap = do
                           , "Yamada Mark-Ⅱ"
                           ]
                        ]
+  describe "error on tweet precheck" $ do
+    let mockConfig =
+          MockConfig
+            { dbInitialState = mockDbinitialState
+            , dbMockConfig =
+                MockDbConfig
+                  { errorIfMatch = \m n -> case (m, n) of
+                      (Db.GetCurrentName {}, _) -> Just "DB Down"
+                      _ -> Nothing
+                  }
+            , twListsMembersResp =
+                [ Right . mkTwitterListMembersResp $
+                    [ mkTwitterUser1 "Yamada Mark-Ⅱ"
+                    , mkTwitterUser2 "Tanaka Mark-Ⅱ"
+                    ]
+                , Right . mkTwitterListMembersResp $
+                    [ mkTwitterUser1 "Yamada Mark-Ⅲ"
+                    , mkTwitterUser2 "Tanaka Mark-Ⅱ"
+                    ]
+                ]
+            , twTweetResp = [Right successTweetResp]
+            , loopConfig = LoopConfig {loopCount = Just 2, loopDelaySec = 0}
+            }
+    result <- runIO $ runApp' mockConfig
+    it "is logged" $ do
+      logs <- getLogRecord result
+      logs `shouldSatisfy` any (\l -> l ^? J.key "error" == Just (J.String "DB Down"))
+    it "is not tweeted" $ do
+      getTweetRecord result `shouldReturn` []
+    it "does not alters state" $ do
+      getCurrentState result
+        `shouldReturn` Just
+          ( M.fromList
+              [("Tanaka Hanako", "Tanaka Mark-Ⅱ"), ("Yamada Taro", "Yamada Mark-Ⅱ")]
+          )
+  describe "retry after error on tweet precheck" $ do
+    let mockConfig =
+          MockConfig
+            { dbInitialState = mockDbinitialState
+            , dbMockConfig =
+                MockDbConfig
+                  { errorIfMatch = \m n -> case (m, n) of
+                      (Db.GetCurrentName {}, 1) -> Just "DB Down"
+                      _ -> Nothing
+                  }
+            , twListsMembersResp =
+                [ Right . mkTwitterListMembersResp $
+                    [ mkTwitterUser1 "Yamada Mark-Ⅱ"
+                    , mkTwitterUser2 "Tanaka Mark-Ⅱ"
+                    ]
+                , Right . mkTwitterListMembersResp $
+                    [ mkTwitterUser1 "Yamada Mark-Ⅲ"
+                    , mkTwitterUser2 "Tanaka Mark-Ⅱ"
+                    ]
+                , Right . mkTwitterListMembersResp $
+                    [ mkTwitterUser1 "Yamada Mark-Ⅲ"
+                    , mkTwitterUser2 "Tanaka Mark-Ⅱ"
+                    ]
+                ]
+            , twTweetResp = [Right successTweetResp]
+            , loopConfig = LoopConfig {loopCount = Just 3, loopDelaySec = 0}
+            }
+    result <- runIO $ runApp' mockConfig
+    it "is done in the next loop" $ do
+      getTweetRecord result
+        `shouldReturn` [ T.unlines
+                          [ "Yamada Taro(twitter.com/t_yamada)さんが名前を変更しました"
+                          , ""
+                          , "Yamada Mark-Ⅲ"
+                          , "⇑"
+                          , "Yamada Mark-Ⅱ"
+                          ]
+                       ]
+  describe "error on DB update (updateCurrentName)" $ do
+    let mockConfig =
+          MockConfig
+            { dbInitialState = mockDbinitialState
+            , dbMockConfig =
+                MockDbConfig
+                  { errorIfMatch = \m n -> case (m, n) of
+                      (Db.UpdateCurrentName {}, _) -> Just "DB Down"
+                      _ -> Nothing
+                  }
+            , twListsMembersResp =
+                [ Right . mkTwitterListMembersResp $
+                    [ mkTwitterUser1 "Yamada Mark-Ⅱ"
+                    , mkTwitterUser2 "Tanaka Mark-Ⅱ"
+                    ]
+                , Right . mkTwitterListMembersResp $
+                    [ mkTwitterUser1 "Yamada Mark-Ⅲ"
+                    , mkTwitterUser2 "Tanaka Mark-Ⅱ"
+                    ]
+                ]
+            , twTweetResp = [Right successTweetResp]
+            , loopConfig = LoopConfig {loopCount = Just 2, loopDelaySec = 0}
+            }
+    result <- runIO $ runApp' mockConfig
+    it "is logged" $ do
+      logs <- getLogRecord result
+      logs `shouldSatisfy` any (\l -> l ^? J.key "error" == Just (J.String "DB Down"))
+    it "is tweeted" $ do
+      getTweetRecord result
+        `shouldReturn` [ T.unlines
+                          [ "Yamada Taro(twitter.com/t_yamada)さんが名前を変更しました"
+                          , ""
+                          , "Yamada Mark-Ⅲ"
+                          , "⇑"
+                          , "Yamada Mark-Ⅱ"
+                          ]
+                       ]
+    it "alters state" $ do
+      getCurrentState result
+        `shouldReturn` Just
+          ( M.fromList
+              [("Tanaka Hanako", "Tanaka Mark-Ⅱ"), ("Yamada Taro", "Yamada Mark-Ⅲ")]
+          )
+    it "is stored in pending items" $ do
+      pendingItems <- getDbPendingItems result
+      pendingItems `shouldSatisfy` any \case
+        Bot.DbPendingItem {updateCurrentNameItem} -> isJust updateCurrentNameItem
+  describe "retry after error on DB update" $ do
+    let mockConfig =
+          MockConfig
+            { dbInitialState = mockDbinitialState
+            , dbMockConfig =
+                MockDbConfig
+                  { errorIfMatch = \m n -> case (m, n) of
+                      (Db.UpdateCurrentName {}, 1) -> Just "DB Down"
+                      _ -> Nothing
+                  }
+            , twListsMembersResp =
+                [ Right . mkTwitterListMembersResp $
+                    [ mkTwitterUser1 "Yamada Mark-Ⅱ"
+                    , mkTwitterUser2 "Tanaka Mark-Ⅱ"
+                    ]
+                , Right . mkTwitterListMembersResp $
+                    [ mkTwitterUser1 "Yamada Mark-Ⅲ"
+                    , mkTwitterUser2 "Tanaka Mark-Ⅱ"
+                    ]
+                , Right . mkTwitterListMembersResp $
+                    [ mkTwitterUser1 "Yamada Mark-Ⅲ"
+                    , mkTwitterUser2 "Tanaka Mark-Ⅱ"
+                    ]
+                ]
+            , twTweetResp = [Right successTweetResp]
+            , loopConfig = LoopConfig {loopCount = Just 3, loopDelaySec = 0}
+            }
+    result <- runIO $ runApp' mockConfig
+    it "processes all pending items" $ do
+      getDbPendingItems result `shouldReturn` mempty
 
 -------------------------------------------------------------------------------
 
