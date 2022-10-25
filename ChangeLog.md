@@ -1,4 +1,9 @@
 
+# 0.3.1.2
+
+* Fix minor bugs
+* Refactor tests
+
 # 0.3.1.1
 
 * Fix minor bugs
