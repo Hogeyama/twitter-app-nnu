@@ -1,17 +1,19 @@
 {-# LANGUAGE BlockArguments #-}
 
+-- | White-box tests for the 'NNU.App.TwitterBot' module.
 module NNU.App.TwitterBotSpec (
   spec,
 ) where
 
 import Polysemy
-import qualified Polysemy.Error as Polysemy
-import qualified Polysemy.Reader as Polysemy
-import qualified Polysemy.State as Polysemy
+import Polysemy.Error as Polysemy
+import Polysemy.Reader as Polysemy
+import Polysemy.State as Polysemy
 
 import qualified Data.Aeson as J
-import Data.Generics.Product (HasAny (the))
-import RIO hiding (logError, when)
+import Data.Generics.Product (HasField (field))
+import qualified Lens.Micro.Aeson as J
+import RIO hiding (Reader, ask, logError, when)
 import qualified RIO.HashMap as HM
 import qualified RIO.Map as M
 import qualified RIO.Map as Map
@@ -29,23 +31,25 @@ import qualified Web.Twitter.Conduit as OrigTwitter
 
 import NNU.App.TwitterBot (
   AppConfig (..),
+  DbPendingItem,
   LoopConfig (..),
+  normalizePendingItems,
  )
 import qualified NNU.App.TwitterBot as Bot
 import qualified NNU.Effect.Db as Db
 import qualified NNU.Effect.Log as Log
+import NNU.Effect.Sleep (Sleep)
+import qualified NNU.Effect.Sleep as Sleep
 import qualified NNU.Effect.Twitter as Twitter
 import NNU.Nijisanji (
   Group (..),
   GroupName (Other),
  )
 import qualified NNU.Nijisanji as NNU
+import NNU.Prelude (when)
 import qualified NNU.Prelude
 
-import NNU.Effect.Sleep (Sleep)
-import qualified NNU.Effect.Sleep as Sleep
 import Test.Hspec
-import NNU.Prelude (when)
 
 -------------------------------------------------------------------------------
 -- Mock
@@ -59,18 +63,43 @@ data ResultRecord = ResultRecord
   deriving stock (Generic)
 
 data MockConfig = MockConfig
-  { twListsMembersResp :: [Either Twitter.Error Twitter.ListsMembersResp]
-  , twTweetResp :: [Either Twitter.Error Twitter.TweetResp]
+  { twListsMembersResp :: [Either Twitter.ListsMembersError Twitter.ListsMembersResp]
+  , twTweetResp :: [Either Twitter.TweetError Twitter.TweetResp]
   , dbInitialState :: MockDbState
+  , dbMockConfig :: MockDbConfig
   , loopConfig :: Bot.LoopConfig
   }
 
-newtype MockDbState = MockDbState (Map Text Db.CurrentNameItem)
+data MockDbState = MockDbState
+  { nameMap :: Map Text Db.CurrentNameItem
+  , getCurrentNameCount :: Int
+  , getCurrentNamesOfGroup :: Int
+  , updateCurrentNameCount :: Int
+  , putHistoryCount :: Int
+  , getHistoryCount :: Int
+  }
+  deriving (Generic)
+
+data MockDbConfig = MockDbConfig
+  { -- | @errorIfMatch action nth == Just err@ means that @action@ will throw @err@ on @nth@ call.
+    --   @Nothing@ means that @action@ will not throw any error.
+    --   @nth@ starts from 1.
+    --   On counting the number of calls, fields of actions are ignored. i.e.,
+    --   There is no distinguish between @GetCurrentName "tanaka"@ and @GetCurrentName "suzuki"@.
+    --   Each of them is counted as one call of the same @GetCurrentName@ action.
+    errorIfMatch :: forall k (m :: k) a. Db.NnuDb m a -> Int -> Maybe Text
+  }
 
 mockDbStateFromList :: [Db.CurrentNameItem] -> MockDbState
 mockDbStateFromList xs =
-  MockDbState $
-    Map.fromList [(memberName, x) | x@Db.CurrentNameItem {..} <- xs]
+  MockDbState
+    { nameMap = Map.fromList [(memberName, x) | x@Db.CurrentNameItem {..} <- xs]
+    , getCurrentNameCount = 0
+    , getCurrentNamesOfGroup = 0
+    , updateCurrentNameCount = 0
+    , putHistoryCount = 0
+    , getHistoryCount = 0
+    }
 
 runApp :: ResourceMap -> MockConfig -> IO ResultRecord
 runApp resourceMap mockConfig = do
@@ -94,6 +123,7 @@ runApp resourceMap mockConfig = do
     . Polysemy.runStateIORef tweetRecord
     . runTwitterMock
     -- mock db
+    . Polysemy.runReader (dbMockConfig mockConfig)
     . Polysemy.runStateIORef dbState
     . runDbMock
     -- application config and state
@@ -101,6 +131,7 @@ runApp resourceMap mockConfig = do
     . Polysemy.runStateIORef appState
     . Polysemy.runReader appConfig
     $ Bot.app (loopConfig mockConfig)
+      >> normalizePendingItems
   pure ResultRecord {..}
 
 throwError ::
@@ -126,60 +157,88 @@ runTwitterMock ::
   Polysemy.Members
     '[ Polysemy.Error String
      , Polysemy.State [Text] -- record tweet
-     , Polysemy.State [Either Twitter.Error Twitter.ListsMembersResp] -- api call response
-     , Polysemy.State [Either Twitter.Error Twitter.TweetResp] -- api call response
+     , Polysemy.State [Either Twitter.ListsMembersError Twitter.ListsMembersResp] -- api call response
+     , Polysemy.State [Either Twitter.TweetError Twitter.TweetResp] -- api call response
      ]
     r =>
   Sem (Twitter.Twitter ': r) a ->
   Sem r a
 runTwitterMock = interpret $ \case
   Twitter.ListsMembers _ -> do
-    mockSimpleAction @Twitter.ListsMembersResp "listMembers"
+    mockSimpleAction "listMembers"
   Twitter.Tweet body -> do
-    tw <- mockSimpleAction @Twitter.TweetResp "tweet"
+    tw <- mockSimpleAction "tweet"
     when (isRight tw) do
       Polysemy.modify' @[Text] (body :)
     pure tw
   where
     mockSimpleAction ::
-      forall x r'.
+      forall x e r'.
       Polysemy.Member (Polysemy.Error String) r' =>
-      Polysemy.Member (Polysemy.State [Either Twitter.Error x]) r' =>
+      Polysemy.Member (Polysemy.State [Either e x]) r' =>
       String ->
-      Sem r' (Either Twitter.Error x)
+      Sem r' (Either e x)
     mockSimpleAction name = do
-      Polysemy.get @[Either Twitter.Error x] >>= \case
+      Polysemy.get @[Either e x] >>= \case
         x : xs -> do
           Polysemy.put xs
           pure x
         [] -> Polysemy.throw @String $ name <> " called too many times"
 
--- TODO こっちもエラーを模倣したほうがよいのでは
 runDbMock ::
   forall r a.
-  Polysemy.Member (Polysemy.State MockDbState) r =>
+  ( Member (State MockDbState) r
+  , Member (Reader MockDbConfig) r
+  ) =>
   Sem (Db.NnuDb ': r) a ->
   Sem r a
-runDbMock = interpret $ \case
-  Db.GetCurrentName member -> Right <$> getCurrentName_ member
-  Db.GetCurrentNamesOfGroup group -> Right <$> getCurrentNamesOfGroup_ group
-  Db.UpdateCurrentName name -> Right <$> updateCurrentName_ name
-  Db.PutHistory _ -> pure (Right ())
-  Db.GetHistroy _ -> error "not implemented"
+runDbMock = do
+  interpret \e -> do
+    MockDbConfig {errorIfMatch} <- ask @MockDbConfig
+    case e of
+      Db.GetCurrentName member -> do
+        n <- increment (field @"getCurrentNameCount")
+        case errorIfMatch e n of
+          Just err -> mkErr Db.GetCurrentNameError err
+          Nothing -> Right <$> getCurrentName_ member
+      Db.GetCurrentNamesOfGroup group -> do
+        n <- increment (field @"getCurrentNamesOfGroup")
+        case errorIfMatch e n of
+          Just err -> mkErr Db.GetCurrentNamesOfGroupError err
+          Nothing -> Right <$> getCurrentNamesOfGroup_ group
+      Db.UpdateCurrentName name -> do
+        n <- increment (field @"updateCurrentNameCount")
+        case errorIfMatch e n of
+          Just err -> mkErr Db.UpdateCurrentNameError err
+          Nothing -> Right <$> updateCurrentName_ name
+      Db.PutHistory _ -> do
+        n <- increment (field @"putHistoryCount")
+        case errorIfMatch e n of
+          Just err -> mkErr Db.PutHistoryError err
+          Nothing -> pure $ Right ()
+      Db.GetHistroy _ -> error "not implemented"
   where
     getCurrentName_ :: NNU.Member -> Sem r Db.CurrentNameItem
     getCurrentName_ member = do
-      let memberName = member ^. the @"memberName"
-      MockDbState m <- Polysemy.get @MockDbState
-      pure $ Partial.fromJust $ Map.lookup memberName m
+      let memberName = member ^. field @"memberName"
+      MockDbState {nameMap} <- Polysemy.get @MockDbState
+      pure $ Partial.fromJust $ Map.lookup memberName nameMap
     getCurrentNamesOfGroup_ :: NNU.Group -> Sem r [Db.CurrentNameItem]
     getCurrentNamesOfGroup_ Group {members} = do
       mapM getCurrentName_ members
     updateCurrentName_ :: Db.UpdateCurrentNameItem -> Sem r ()
     updateCurrentName_ Db.UpdateCurrentNameItem {..} = do
-      let memberName = member ^. the @"memberName"
+      let memberName = member ^. field @"memberName"
           cni = Db.CurrentNameItem {..}
-      Polysemy.modify' $ \(MockDbState m) -> MockDbState (Map.insert memberName cni m)
+      Polysemy.modify' @MockDbState $ field @"nameMap" %~ Map.insert memberName cni
+
+    increment :: Lens' MockDbState Int -> Sem r Int
+    increment l = do
+      Polysemy.modify' $ l %~ (+ 1)
+      Polysemy.gets (view l)
+
+    mkErr :: forall e b. (J.Value -> e) -> Text -> Sem r (Either e b)
+    mkErr con err = pure . Left . con . J.String $ err
 
 runSleepMock :: Sem (Sleep ': r) a -> Sem r a
 runSleepMock = interpret $ \case
@@ -195,7 +254,10 @@ getTweetRecord :: MonadIO m => ResultRecord -> m [Text]
 getTweetRecord ResultRecord {..} = reverse <$> readIORef tweetRecord
 
 getCurrentState :: MonadIO m => ResultRecord -> m (Maybe (Map Text Text))
-getCurrentState ResultRecord {..} = view (the @"store") <$> readIORef appState
+getCurrentState ResultRecord {..} = view (field @"nameMapCache") <$> readIORef appState
+
+getDbPendingItems :: MonadIO m => ResultRecord -> m (Map NNU.Member DbPendingItem)
+getDbPendingItems ResultRecord {..} = view (field @"dbPendingItems") <$> readIORef appState
 
 -- Mock Data
 ----------------
@@ -223,16 +285,31 @@ mkTwitterUser1 = Twitter.User 1
 mkTwitterUser2 :: Text -> Twitter.User
 mkTwitterUser2 = Twitter.User 2
 
-mockDbnitialState :: MockDbState
-mockDbnitialState =
+mkTwitterListMembersResp :: [Twitter.User] -> Twitter.ListsMembersResp
+mkTwitterListMembersResp users =
+  Twitter.WithCursor
+    { nextCursor = Nothing
+    , previousCursor = Nothing
+    , contents = users
+    }
+
+successTweetResp :: Twitter.TweetResp
+successTweetResp =
+  Twitter.TweetResp
+    { tweetId = 0
+    , createdAt = testTime
+    }
+
+mockDbinitialState :: MockDbState
+mockDbinitialState =
   mockDbStateFromList
     [ Db.CurrentNameItem
-        { memberName = mockMember1 ^. the @"memberName"
+        { memberName = mockMember1 ^. field @"memberName"
         , updateTime = testTime
         , twitterName = "Yamada Mark-Ⅱ"
         }
     , Db.CurrentNameItem
-        { memberName = mockMember2 ^. the @"memberName"
+        { memberName = mockMember2 ^. field @"memberName"
         , updateTime = testTime
         , twitterName = "Tanaka Mark-Ⅱ"
         }
@@ -247,39 +324,24 @@ spec resourceMap = do
   describe "twitter name change" $ do
     let mockConfig =
           MockConfig
-            { dbInitialState = mockDbnitialState
+            { dbInitialState = mockDbinitialState
+            , dbMockConfig = MockDbConfig {errorIfMatch = \_ _ -> Nothing}
             , twListsMembersResp =
-                [ Right
-                    Twitter.WithCursor
-                      { nextCursor = Nothing
-                      , previousCursor = Nothing
-                      , contents =
-                          [ mkTwitterUser1 "Yamada Mark-Ⅱ"
-                          , mkTwitterUser2 "Tanaka Mark-Ⅱ"
-                          ]
-                      }
-                , Right
-                    Twitter.WithCursor
-                      { nextCursor = Nothing
-                      , previousCursor = Nothing
-                      , contents =
-                          [ mkTwitterUser1 "Yamada Mark-Ⅲ"
-                          , mkTwitterUser2 "Tanaka Mark-Ⅱ"
-                          ]
-                      }
+                [ Right . mkTwitterListMembersResp $
+                    [ mkTwitterUser1 "Yamada Mark-Ⅱ"
+                    , mkTwitterUser2 "Tanaka Mark-Ⅱ"
+                    ]
+                , Right . mkTwitterListMembersResp $
+                    [ mkTwitterUser1 "Yamada Mark-Ⅲ"
+                    , mkTwitterUser2 "Tanaka Mark-Ⅱ"
+                    ]
                 ]
-            , twTweetResp =
-                [ Right
-                    Twitter.TweetResp
-                      { tweetId = 0
-                      , createdAt = testTime
-                      }
-                ]
+            , twTweetResp = [Right successTweetResp]
             , loopConfig = LoopConfig {loopCount = Just 2, loopDelaySec = 0}
             }
-    env <- runIO $ runApp' mockConfig
+    result <- runIO $ runApp' mockConfig
     it "is logged" $ do
-      getLogRecord env
+      getLogRecord result
         `shouldReturn` [ J.object
                           [ "message" J..= ("twitter name changed" :: Text)
                           , "member" J..= ("Yamada Taro" :: Text)
@@ -288,7 +350,7 @@ spec resourceMap = do
                           ]
                        ]
     it "is tweeted" $ do
-      getTweetRecord env
+      getTweetRecord result
         `shouldReturn` [ T.unlines
                           [ "Yamada Taro(twitter.com/t_yamada)さんが名前を変更しました"
                           , ""
@@ -298,7 +360,7 @@ spec resourceMap = do
                           ]
                        ]
     it "alters state" $ do
-      getCurrentState env
+      getCurrentState result
         `shouldReturn` Just
           ( M.fromList
               [("Tanaka Hanako", "Tanaka Mark-Ⅱ"), ("Yamada Taro", "Yamada Mark-Ⅲ")]
@@ -306,79 +368,64 @@ spec resourceMap = do
   describe "user not in list" $ do
     let mockConfig =
           MockConfig
-            { dbInitialState = mockDbnitialState
+            { dbInitialState = mockDbinitialState
+            , dbMockConfig = MockDbConfig {errorIfMatch = \_ _ -> Nothing}
             , twListsMembersResp =
-                [ Right
-                    Twitter.WithCursor
-                      { nextCursor = Nothing
-                      , previousCursor = Nothing
-                      , contents = [mkTwitterUser1 "Yamada Mark-Ⅱ"]
-                      }
+                [ Right . mkTwitterListMembersResp $
+                    [mkTwitterUser1 "Yamada Mark-Ⅱ"]
                 ]
             , twTweetResp = []
             , loopConfig = LoopConfig {loopCount = Just 1, loopDelaySec = 0}
             }
-    env <- runIO $ runApp' mockConfig
+    result <- runIO $ runApp' mockConfig
     it "is logged" $ do
-      getLogRecord env `shouldReturn` ["Tanaka Hanako not found"]
+      getLogRecord result `shouldReturn` ["Tanaka Hanako not found"]
     it "is not tweeted" $ do
-      getTweetRecord env `shouldReturn` []
+      getTweetRecord result `shouldReturn` []
     it "alters state" $ do
-      getCurrentState env
+      getCurrentState result
         `shouldReturn` Just (M.fromList [("Yamada Taro", "Yamada Mark-Ⅱ")])
-  describe "error in listsMembers response" $ do
+  describe "error on listsMembers response" $ do
     let mockConfig =
           MockConfig
-            { dbInitialState = mockDbnitialState
-            , twListsMembersResp = [Left (Twitter.Error "Twitter Down")]
+            { dbInitialState = mockDbinitialState
+            , dbMockConfig = MockDbConfig {errorIfMatch = \_ _ -> Nothing}
+            , twListsMembersResp = [Left (Twitter.ListsMembersError "Twitter Down")]
             , twTweetResp = []
             , loopConfig = LoopConfig {loopCount = Just 1, loopDelaySec = 0}
             }
-    env <- runIO $ runApp' mockConfig
+    result <- runIO $ runApp' mockConfig
     it "is logged" $ do
-      logs <- getLogRecord env
+      logs <- getLogRecord result
       logs `shouldSatisfy` \case
         [J.String e] -> "Twitter Down" `T.isInfixOf` e
         _ -> False
     it "is not tweeted" $ do
-      getTweetRecord env `shouldReturn` []
-  describe "error in first tweet post" $ do
+      getTweetRecord result `shouldReturn` []
+  describe "error on tweet post" $ do
     let mockConfig =
           MockConfig
-            { dbInitialState = mockDbnitialState
+            { dbInitialState = mockDbinitialState
+            , dbMockConfig = MockDbConfig {errorIfMatch = \_ _ -> Nothing}
             , twListsMembersResp =
-                [ Right
-                    Twitter.WithCursor
-                      { nextCursor = Nothing
-                      , previousCursor = Nothing
-                      , contents =
-                          [ mkTwitterUser1 "Yamada Mark-Ⅱ"
-                          , mkTwitterUser2 "Tanaka Mark-Ⅱ"
-                          ]
-                      }
-                , Right
-                    Twitter.WithCursor
-                      { nextCursor = Nothing
-                      , previousCursor = Nothing
-                      , contents =
-                          [ mkTwitterUser1 "Yamada Mark-Ⅲ"
-                          , mkTwitterUser2 "Tanaka Mark-Ⅲ"
-                          ]
-                      }
+                [ Right . mkTwitterListMembersResp $
+                    [ mkTwitterUser1 "Yamada Mark-Ⅱ"
+                    , mkTwitterUser2 "Tanaka Mark-Ⅱ"
+                    ]
+                , Right . mkTwitterListMembersResp $
+                    [ mkTwitterUser1 "Yamada Mark-Ⅲ"
+                    , mkTwitterUser2 "Tanaka Mark-Ⅲ"
+                    ]
                 ]
             , twTweetResp =
-                [ Left (Twitter.Error "Twitter Down")
-                , Right
-                    Twitter.TweetResp
-                      { tweetId = 0
-                      , createdAt = testTime
-                      }
+                [ Left (Twitter.TweetError "Twitter Down")
+                , Right successTweetResp
                 ]
             , loopConfig = LoopConfig {loopCount = Just 2, loopDelaySec = 0}
             }
-    env <- runIO $ runApp' mockConfig
+    result <- runIO $ runApp' mockConfig
     it "is logged" $ do
-      logs <- getLogRecord env
+      logs <- getLogRecord result
       logs `shouldSatisfy` any \case
         J.Object o
           | Just (J.String e) <- HM.lookup "error" o ->
@@ -386,50 +433,29 @@ spec resourceMap = do
         J.String e -> "Twitter Down" `T.isInfixOf` e
         _ -> False
     it "does not affect other tweets" $ do
-      getTweetRecord env
-        `shouldReturn` [ T.unlines
-                          [ "Tanaka Hanako(twitter.com/h_tanaka)さんが名前を変更しました"
-                          , ""
-                          , "Tanaka Mark-Ⅲ"
-                          , "⇑"
-                          , "Tanaka Mark-Ⅱ"
-                          ]
-                       ]
-  describe "error in first tweet post" $ do
+      tweetRecord <- getTweetRecord result
+      tweetRecord `shouldSatisfy` (length >>> (== 1))
+  describe "retry after error on tweet post" $ do
     let mockConfig =
           MockConfig
-            { dbInitialState = mockDbnitialState
+            { dbInitialState = mockDbinitialState
+            , dbMockConfig = MockDbConfig {errorIfMatch = \_ _ -> Nothing}
             , twListsMembersResp =
-                [ Right
-                    Twitter.WithCursor
-                      { nextCursor = Nothing
-                      , previousCursor = Nothing
-                      , contents =
-                          [ mkTwitterUser1 "Yamada Mark-Ⅱ"
-                          , mkTwitterUser2 "Tanaka Mark-Ⅱ"
-                          ]
-                      }
-                , Right
-                    Twitter.WithCursor
-                      { nextCursor = Nothing
-                      , previousCursor = Nothing
-                      , contents =
-                          [ mkTwitterUser1 "Yamada Mark-Ⅲ"
-                          , mkTwitterUser2 "Tanaka Mark-Ⅱ"
-                          ]
-                      }
-                , Right
-                    Twitter.WithCursor
-                      { nextCursor = Nothing
-                      , previousCursor = Nothing
-                      , contents =
-                          [ mkTwitterUser1 "Yamada Mark-Ⅲ"
-                          , mkTwitterUser2 "Tanaka Mark-Ⅱ"
-                          ]
-                      }
+                [ Right . mkTwitterListMembersResp $
+                    [ mkTwitterUser1 "Yamada Mark-Ⅱ"
+                    , mkTwitterUser2 "Tanaka Mark-Ⅱ"
+                    ]
+                , Right . mkTwitterListMembersResp $
+                    [ mkTwitterUser1 "Yamada Mark-Ⅲ"
+                    , mkTwitterUser2 "Tanaka Mark-Ⅱ"
+                    ]
+                , Right . mkTwitterListMembersResp $
+                    [ mkTwitterUser1 "Yamada Mark-Ⅲ"
+                    , mkTwitterUser2 "Tanaka Mark-Ⅱ"
+                    ]
                 ]
             , twTweetResp =
-                [ Left (Twitter.Error "Twitter Down")
+                [ Left (Twitter.TweetError "Twitter Down")
                 , Right
                     Twitter.TweetResp
                       { tweetId = 0
@@ -438,9 +464,9 @@ spec resourceMap = do
                 ]
             , loopConfig = LoopConfig {loopCount = Just 3, loopDelaySec = 0}
             }
-    env <- runIO $ runApp' mockConfig
-    it "is retried in the next loop" $ do
-      getTweetRecord env
+    result <- runIO $ runApp' mockConfig
+    it "is done in the next loop" $ do
+      getTweetRecord result
         `shouldReturn` [ T.unlines
                           [ "Yamada Taro(twitter.com/t_yamada)さんが名前を変更しました"
                           , ""
@@ -449,6 +475,156 @@ spec resourceMap = do
                           , "Yamada Mark-Ⅱ"
                           ]
                        ]
+  describe "error on tweet precheck" $ do
+    let mockConfig =
+          MockConfig
+            { dbInitialState = mockDbinitialState
+            , dbMockConfig =
+                MockDbConfig
+                  { errorIfMatch = \m n -> case (m, n) of
+                      (Db.GetCurrentName {}, _) -> Just "DB Down"
+                      _ -> Nothing
+                  }
+            , twListsMembersResp =
+                [ Right . mkTwitterListMembersResp $
+                    [ mkTwitterUser1 "Yamada Mark-Ⅱ"
+                    , mkTwitterUser2 "Tanaka Mark-Ⅱ"
+                    ]
+                , Right . mkTwitterListMembersResp $
+                    [ mkTwitterUser1 "Yamada Mark-Ⅲ"
+                    , mkTwitterUser2 "Tanaka Mark-Ⅱ"
+                    ]
+                ]
+            , twTweetResp = [Right successTweetResp]
+            , loopConfig = LoopConfig {loopCount = Just 2, loopDelaySec = 0}
+            }
+    result <- runIO $ runApp' mockConfig
+    it "is logged" $ do
+      logs <- getLogRecord result
+      logs `shouldSatisfy` any (\l -> l ^? J.key "error" == Just (J.String "DB Down"))
+    it "is not tweeted" $ do
+      getTweetRecord result `shouldReturn` []
+    it "does not alters state" $ do
+      getCurrentState result
+        `shouldReturn` Just
+          ( M.fromList
+              [("Tanaka Hanako", "Tanaka Mark-Ⅱ"), ("Yamada Taro", "Yamada Mark-Ⅱ")]
+          )
+  describe "retry after error on tweet precheck" $ do
+    let mockConfig =
+          MockConfig
+            { dbInitialState = mockDbinitialState
+            , dbMockConfig =
+                MockDbConfig
+                  { errorIfMatch = \m n -> case (m, n) of
+                      (Db.GetCurrentName {}, 1) -> Just "DB Down"
+                      _ -> Nothing
+                  }
+            , twListsMembersResp =
+                [ Right . mkTwitterListMembersResp $
+                    [ mkTwitterUser1 "Yamada Mark-Ⅱ"
+                    , mkTwitterUser2 "Tanaka Mark-Ⅱ"
+                    ]
+                , Right . mkTwitterListMembersResp $
+                    [ mkTwitterUser1 "Yamada Mark-Ⅲ"
+                    , mkTwitterUser2 "Tanaka Mark-Ⅱ"
+                    ]
+                , Right . mkTwitterListMembersResp $
+                    [ mkTwitterUser1 "Yamada Mark-Ⅲ"
+                    , mkTwitterUser2 "Tanaka Mark-Ⅱ"
+                    ]
+                ]
+            , twTweetResp = [Right successTweetResp]
+            , loopConfig = LoopConfig {loopCount = Just 3, loopDelaySec = 0}
+            }
+    result <- runIO $ runApp' mockConfig
+    it "is done in the next loop" $ do
+      getTweetRecord result
+        `shouldReturn` [ T.unlines
+                          [ "Yamada Taro(twitter.com/t_yamada)さんが名前を変更しました"
+                          , ""
+                          , "Yamada Mark-Ⅲ"
+                          , "⇑"
+                          , "Yamada Mark-Ⅱ"
+                          ]
+                       ]
+  describe "error on DB update (updateCurrentName)" $ do
+    let mockConfig =
+          MockConfig
+            { dbInitialState = mockDbinitialState
+            , dbMockConfig =
+                MockDbConfig
+                  { errorIfMatch = \m n -> case (m, n) of
+                      (Db.UpdateCurrentName {}, _) -> Just "DB Down"
+                      _ -> Nothing
+                  }
+            , twListsMembersResp =
+                [ Right . mkTwitterListMembersResp $
+                    [ mkTwitterUser1 "Yamada Mark-Ⅱ"
+                    , mkTwitterUser2 "Tanaka Mark-Ⅱ"
+                    ]
+                , Right . mkTwitterListMembersResp $
+                    [ mkTwitterUser1 "Yamada Mark-Ⅲ"
+                    , mkTwitterUser2 "Tanaka Mark-Ⅱ"
+                    ]
+                ]
+            , twTweetResp = [Right successTweetResp]
+            , loopConfig = LoopConfig {loopCount = Just 2, loopDelaySec = 0}
+            }
+    result <- runIO $ runApp' mockConfig
+    it "is logged" $ do
+      logs <- getLogRecord result
+      logs `shouldSatisfy` any (\l -> l ^? J.key "error" == Just (J.String "DB Down"))
+    it "is tweeted" $ do
+      getTweetRecord result
+        `shouldReturn` [ T.unlines
+                          [ "Yamada Taro(twitter.com/t_yamada)さんが名前を変更しました"
+                          , ""
+                          , "Yamada Mark-Ⅲ"
+                          , "⇑"
+                          , "Yamada Mark-Ⅱ"
+                          ]
+                       ]
+    it "alters state" $ do
+      getCurrentState result
+        `shouldReturn` Just
+          ( M.fromList
+              [("Tanaka Hanako", "Tanaka Mark-Ⅱ"), ("Yamada Taro", "Yamada Mark-Ⅲ")]
+          )
+    it "is stored in pending items" $ do
+      pendingItems <- getDbPendingItems result
+      pendingItems `shouldSatisfy` any \case
+        Bot.DbPendingItem {updateCurrentNameItem} -> isJust updateCurrentNameItem
+  describe "retry after error on DB update" $ do
+    let mockConfig =
+          MockConfig
+            { dbInitialState = mockDbinitialState
+            , dbMockConfig =
+                MockDbConfig
+                  { errorIfMatch = \m n -> case (m, n) of
+                      (Db.UpdateCurrentName {}, 1) -> Just "DB Down"
+                      _ -> Nothing
+                  }
+            , twListsMembersResp =
+                [ Right . mkTwitterListMembersResp $
+                    [ mkTwitterUser1 "Yamada Mark-Ⅱ"
+                    , mkTwitterUser2 "Tanaka Mark-Ⅱ"
+                    ]
+                , Right . mkTwitterListMembersResp $
+                    [ mkTwitterUser1 "Yamada Mark-Ⅲ"
+                    , mkTwitterUser2 "Tanaka Mark-Ⅱ"
+                    ]
+                , Right . mkTwitterListMembersResp $
+                    [ mkTwitterUser1 "Yamada Mark-Ⅲ"
+                    , mkTwitterUser2 "Tanaka Mark-Ⅱ"
+                    ]
+                ]
+            , twTweetResp = [Right successTweetResp]
+            , loopConfig = LoopConfig {loopCount = Just 3, loopDelaySec = 0}
+            }
+    result <- runIO $ runApp' mockConfig
+    it "processes all pending items" $ do
+      getDbPendingItems result `shouldReturn` mempty
 
 -------------------------------------------------------------------------------
 

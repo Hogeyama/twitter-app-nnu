@@ -149,6 +149,7 @@ test-suite unit-test
     , generic-lens
     , hspec
     , hspec-core
+    , microlens-aeson
     , name-update
     , polysemy
     , rio              >=0.1.16.0

@@ -49,7 +49,7 @@ runDynamoDb Config {..} = interpret $ \case
   UpdateCurrentName currentName -> updateCurrentName_ currentName
   PutHistory history -> putHistory_ history
   where
-    getCurrentName_ :: Nnu.Member -> Sem r (Either Error CurrentNameItem)
+    getCurrentName_ :: Nnu.Member -> Sem r (Either GetCurrentNameError CurrentNameItem)
     getCurrentName_ member = do
       runAWS (AWST.send getItem) >>= \case
         Right res -> do
@@ -70,10 +70,10 @@ runDynamoDb Config {..} = interpret $ \case
         pk = "Member#" <> memberName
         sk = "Current"
 
-        throw' :: forall e b. A.ToJSON e => e -> Sem r (Either Error b)
-        throw' = throwError "getCurrentName" getItem
+        throw' :: forall e b. A.ToJSON e => e -> Sem r (Either GetCurrentNameError b)
+        throw' = throwError GetCurrentNameError "getCurrentName" getItem
 
-    getCurrentNamesOfGroup_ :: Nnu.Group -> Sem r (Either Error [CurrentNameItem])
+    getCurrentNamesOfGroup_ :: Nnu.Group -> Sem r (Either GetCurrentNamesOfGroupError [CurrentNameItem])
     getCurrentNamesOfGroup_ group = do
       runAWS (AWST.send query) >>= \case
         Right res -> do
@@ -103,8 +103,8 @@ runDynamoDb Config {..} = interpret $ \case
             , HM.fromList [(":group", mkS (tshow l))]
             )
 
-        throw' :: forall e b. A.ToJSON e => e -> Sem r (Either Error b)
-        throw' = throwError "getCurrentNamesOfGroup" query
+        throw' :: forall e b. A.ToJSON e => e -> Sem r (Either GetCurrentNamesOfGroupError b)
+        throw' = throwError GetCurrentNamesOfGroupError "getCurrentNamesOfGroup" query
 
     updateCurrentName_ UpdateCurrentNameItem {..} = do
       runAWS (AWST.send putItem) >>= \case
@@ -127,10 +127,10 @@ runDynamoDb Config {..} = interpret $ \case
 
         updateTime' = T.pack $ formatShow iso8601Format updateTime
 
-        throw' :: forall e b. A.ToJSON e => e -> Sem r (Either Error b)
-        throw' = throwError "updateCurrentName" putItem
+        throw' :: forall e b. A.ToJSON e => e -> Sem r (Either UpdateCurrentNameError b)
+        throw' = throwError UpdateCurrentNameError "updateCurrentName" putItem
 
-    putHistory_ :: HistoryItem -> Sem r (Either Error ())
+    putHistory_ :: HistoryItem -> Sem r (Either PutHistoryError ())
     putHistory_ HistoryItem {..} = do
       runAWS (AWST.send putItem) >>= \case
         Right res -> do
@@ -150,12 +150,12 @@ runDynamoDb Config {..} = interpret $ \case
               , ("TweetId", mkS $ tshow tweetId)
               ]
 
-        throw' :: forall e b. A.ToJSON e => e -> Sem r (Either Error b)
-        throw' = throwError "putHistory" putItem
+        throw' :: forall e b. A.ToJSON e => e -> Sem r (Either PutHistoryError b)
+        throw' = throwError PutHistoryError "putHistory" putItem
 
         updateTime' = T.pack $ formatShow iso8601Format updateTime
 
-    getHistroy_ _ = throwError "updateCurrentName" () ("not implemented" :: Text)
+    getHistroy_ _ = throwError GetHistoryError "getHistroy" () ("not implemented" :: Text)
 
     runAWS :: forall b. NFData b => RIO AwsResource b -> Sem r (Either SomeException b)
     runAWS aws = do
@@ -205,16 +205,17 @@ _CURRENT_NAME_INDEX = "CURRENT_NAME-index"
 
 throwError ::
   ( A.ToJSON req
-  , A.ToJSON err
+  , A.ToJSON emsg
   ) =>
+  (A.Value -> err) ->
   Text ->
   req ->
-  err ->
-  Sem r (Either Error a)
-throwError methodName req err =
+  emsg ->
+  Sem r (Either err a)
+throwError mkError methodName req err =
   pure $
     Left $
-      Error $
+      mkError $
         A.object
           ["message" A..= methodName, "request" A..= req, "error" A..= err]
 

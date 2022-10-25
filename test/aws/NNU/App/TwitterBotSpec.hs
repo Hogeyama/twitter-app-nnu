@@ -10,7 +10,7 @@ import qualified Polysemy.Reader as Polysemy
 import qualified Polysemy.State as Polysemy
 
 import qualified Data.Aeson as J
-import Data.Generics.Product (HasAny (the))
+import Data.Generics.Product (HasField(field))
 import RIO hiding (logError, when)
 import qualified RIO.Map as M
 import qualified RIO.Map as Map
@@ -57,8 +57,8 @@ data ResultRecord = ResultRecord
   deriving stock (Generic)
 
 data MockConfig = MockConfig
-  { twListsMembersResp :: [Either Twitter.Error Twitter.ListsMembersResp]
-  , twTweetResp :: [Either Twitter.Error Twitter.TweetResp]
+  { twListsMembersResp :: [Either Twitter.ListsMembersError Twitter.ListsMembersResp]
+  , twTweetResp :: [Either Twitter.TweetError Twitter.TweetResp]
   , dbInitialState :: MockDbState
   , loopConfig :: Bot.LoopConfig
   }
@@ -71,7 +71,7 @@ mockDbStateFromList :: [Db.UpdateCurrentNameItem] -> MockDbState
 mockDbStateFromList xs =
   MockDbState $
     Map.fromList
-      [(member ^. the @"memberName", x) | x@Db.UpdateCurrentNameItem {..} <- xs]
+      [(member ^. field @"memberName", x) | x@Db.UpdateCurrentNameItem {..} <- xs]
 
 runApp :: ResourceMap -> MockConfig -> IO ResultRecord
 runApp resourceMap mockConfig = do
@@ -134,29 +134,29 @@ runTwitterMock ::
   Polysemy.Members
     '[ Polysemy.Error String
      , Polysemy.State [Text] -- record tweet
-     , Polysemy.State [Either Twitter.Error ListsMembersResp] -- api call response
-     , Polysemy.State [Either Twitter.Error Twitter.TweetResp] -- api call response
+     , Polysemy.State [Either Twitter.ListsMembersError ListsMembersResp] -- api call response
+     , Polysemy.State [Either Twitter.TweetError Twitter.TweetResp] -- api call response
      ]
     r =>
   Sem (Twitter.Twitter ': r) a ->
   Sem r a
 runTwitterMock = interpret $ \case
   Twitter.ListsMembers _ -> do
-    mockSimpleAction @Twitter.ListsMembersResp "listMembers"
+    mockSimpleAction "listMembers"
   Twitter.Tweet body -> do
-    tw <- mockSimpleAction @Twitter.TweetResp "tweet"
+    tw <- mockSimpleAction "tweet"
     when (isRight tw) do
       Polysemy.modify' @[Text] (body :)
     pure tw
   where
     mockSimpleAction ::
-      forall x r'.
+      forall x e r'.
       Polysemy.Member (Polysemy.Error String) r' =>
-      Polysemy.Member (Polysemy.State [Either Twitter.Error x]) r' =>
+      Polysemy.Member (Polysemy.State [Either e x]) r' =>
       String ->
-      Sem r' (Either Twitter.Error x)
+      Sem r' (Either e x)
     mockSimpleAction name = do
-      Polysemy.get @[Either Twitter.Error x] >>= \case
+      Polysemy.get @[Either e x] >>= \case
         x : xs -> do
           Polysemy.put xs
           pure x
@@ -178,7 +178,7 @@ getTweetRecord ResultRecord {..} = reverse <$> readIORef tweetRecord
 getCurrentState :: MonadIO m => ResultRecord -> m (Maybe (Map Text Text))
 getCurrentState ResultRecord {..} = do
   s <- readIORef appState
-  pure $ s ^. the @"store"
+  pure $ s ^. field @"nameMapCache"
 
 -- Mock Data
 ----------------

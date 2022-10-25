@@ -3,7 +3,6 @@ module Main (
 ) where
 
 import Polysemy
-import qualified Polysemy.Error as Polysemy
 import qualified Polysemy.Reader as Polysemy
 
 import GHC.IO.Encoding (
@@ -16,15 +15,13 @@ import System.ReadEnvVar (lookupEnv)
 import qualified Data.Aeson as J
 import NNU.App.TwitterBot (AppConfig (..), initialAppState)
 import qualified NNU.App.TwitterBot as Bot
-import qualified NNU.Effect.Db as Db
 import qualified NNU.Effect.Db.DynamoDbImpl as DynamoDb
 import qualified NNU.Effect.Log as Log
 import qualified NNU.Effect.Log.StdoutLogImpl as LogStdout
 import qualified NNU.Effect.Sleep.IO as SleepIO
-import qualified NNU.Effect.Twitter as Twitter
 import qualified NNU.Effect.Twitter.TwitterImpl as TheTwitter
 import qualified NNU.Nijisanji as NNU
-import NNU.Prelude hiding (logError)
+import NNU.Prelude
 import qualified Polysemy.State as Polysemy
 import RIO.Char (toUpper)
 
@@ -70,26 +67,11 @@ main = do
       appState <- newIORef initialAppState
       runFinal
         . Polysemy.embedToFinal @IO
-        . LogStdout.runLog
-        . logError @Db.Error
-        . logError @Twitter.Error
-        . Polysemy.runReader appConfig
-        . Polysemy.runStateIORef appState
         . Polysemy.runReader resourceMap
+        . LogStdout.runLog
         . SleepIO.runSleep
         . DynamoDb.runDynamoDb awsConfig
         . TheTwitter.runTwitter twConfig
+        . Polysemy.runReader appConfig
+        . Polysemy.runStateIORef appState
         $ Bot.app loopConfig
-
-logError ::
-  forall e r.
-  ( Member Log.Log r
-  , J.ToJSON e
-  , HasCallStack
-  ) =>
-  Sem (Polysemy.Error e ': r) () ->
-  Sem r ()
-logError action =
-  Polysemy.runError action >>= \case
-    Left e -> Log.error e
-    Right () -> pure ()
