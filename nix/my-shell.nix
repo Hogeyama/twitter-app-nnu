@@ -18,6 +18,8 @@ let
       (haskell-language-server.override {
         supportedGhcVersions = [ compiler-version ];
       })
+      # 新しいバージョンを使う
+      unstable.terraform
     ];
   };
 in
