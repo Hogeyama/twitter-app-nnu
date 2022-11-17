@@ -210,7 +210,7 @@ app loopConfig = runLoop loopConfig do
     catchAndLogFetchError action =
       Polysemy.runError action >>= \case
         Right () -> pure ()
-        Left (e :: Twitter.ListsMembersError) -> Logger.info e
+        Left (e :: Twitter.ListsMembersError) -> Logger.debug e
 
 getCache ::
   forall r.
