@@ -4,7 +4,7 @@ in let Member    = types.MkMember
 in let Group     = types.MkGroup Since2019
 in let members =
    [
-   -- Member Since2019 "童田明治"               "warabeda_meiji"  1082065005061652480
+   -- , Member Since2019 "童田明治"               "warabeda_meiji"  1082065005061652480
    -- , Member Since2019 "久遠千歳"               "kudou_chitose"   1081927064033185794
      Member Since2019 "夢月ロア"               "yuzuki_roa"      1085498064645705728
    , Member Since2019 "郡道美玲"               "g9v9g_mirei"     1085375212575571968
@@ -60,7 +60,7 @@ in let members =
    , Member Since2019 "東堂コハク"             "kohaku_todo"     1288413439816110081
    , Member Since2019 "北小路ヒスイ"           "Hisui_Kitakoji"  1289831706573250561
    , Member Since2019 "西園チグサ"             "Chigusa_24zono"  1289884632637349888
-   , Member Since2019 "アクシア・クローネ"     "AXIA_96NE"       1414413931955638277
+   -- , Member Since2019 "アクシア・クローネ"     "AXIA_96NE"       1414413931955638277
    , Member Since2019 "ローレン・イロアス"     "Lauren_iroas"    1414416987703300100
    , Member Since2019 "レオス・ヴィンセント"   "Leos_Vincent"    1409367400709984260
    , Member Since2019 "オリバー・エバンス"     "oliverD_23"      1414419155881627649
